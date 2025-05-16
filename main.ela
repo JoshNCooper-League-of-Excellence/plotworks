@@ -60,8 +60,6 @@ fn screen_to_nodespace(screen_pos: Vector2) -> Vector2 {
   };
 }
 
-
-
 struct Operation {
   operator: Operator,
   // TODO: add a way to do arbitrary num of operands.
@@ -94,7 +92,6 @@ impl Widget for FreeformArea {
     if self.base.input_state & InputState::Hovered == 0 
       then return;
 
-
     // Hover logic.
     {
 
@@ -121,21 +118,23 @@ impl Widget for FreeformArea {
 
       switch self.placement_mode {
         PlacementMode::Node: {
-          mouse := GetMousePosition();
-          mut shape := SolidShape::Circle.{ radius: 5.0 };
-          shape.draw(mouse, WHITE.with_alpha(90));
-          nodespace_pos := screen_to_nodespace(mouse);
+          if !IsMouseButtonDown(MouseButton::MOUSE_BUTTON_RIGHT) {
+            mouse := GetMousePosition();
+            mut shape := SolidShape::Circle.{ radius: 5.0 };
+            shape.draw(mouse, WHITE.with_alpha(90));
+            nodespace_pos := screen_to_nodespace(mouse);
 
-          draw_textf("x=%, y=%", 
-            (nodespace_pos.x, nodespace_pos.y), 
-            mouse + Vector2::scalar(15), 
-            Style.{ 
-              font_size: 15, 
-              font: self.base.style.font, 
-              font_color_override: Some(WHITE.with_alpha(200))
-            },
-            *FormatOptions::current(),
-          );
+            draw_textf("x=%, y=%", 
+              (nodespace_pos.x * 100, nodespace_pos.y * 100), 
+              mouse + Vector2::scalar(15), 
+              Style.{ 
+                font_size: 15, 
+                font: self.base.style.font, 
+                font_color_override: Some(WHITE.with_alpha(200))
+              },
+              *FormatOptions::current(),
+            );
+          }
         }
         PlacementMode::Operation: {
           mouse := GetMousePosition();
@@ -366,7 +365,7 @@ impl Node {
 
 
     draw_textf("% (%, %)", 
-      (self.name, self.value.x, self.value.y), 
+      (self.name, self.value.x * 100, self.value.y * 100), 
       position + Vector2::scalar(12),
       Style.{ 
         font_size: 12, 
