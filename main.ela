@@ -1,8 +1,182 @@
-import rayui::*;
+
+#include "ui.ela"
+
+import fmt::*;
+
+struct ListBox {
+  base: WidgetBase,
+  children: List!<dyn Widget>,
+}
+
+impl Widget for ListBox {
+  fn draw(*mut self) {
+    DrawRectangleRec(self.base.rectangle, self.base.style.background.with_alpha(20));
+    DrawRectangleLinesEx(self.base.rectangle, self.base.style.line_thickness, self.base.style.background);
+    const MARGIN := 10.0;
+    position: Vector2 = .{ x: self.base.rectangle.x, y: self.base.rectangle.y  }; 
+    for child in self.children.iter_mut() {
+      base := child.get_base();
+      rect := &mut base.rectangle;
+      rect.x = position.x + (MARGIN / 2);
+      rect.y = position.y + (MARGIN / 2);
+      rect.width = self.base.rectangle.width - MARGIN;
+      rect.height = (self.base.rectangle.height / self.children.length as f32) - MARGIN;
+      position.y += rect.height + MARGIN / 2;
+      child.draw();
+    }
+  }
+  fn get_children(*const self) -> *mut List!<dyn Widget> {
+    return &mut self.children;
+  }
+}
+
+impl ListBox {
+  fn add_child!<T>(*mut self, widget: *mut T) where T: Widget {
+    self.base.children.push(widget.get_base());
+    self.children.push(dynof(widget, Widget));
+  }
+}
+
+struct Node;
+
+enum Operator {
+  Distance,
+  Dot,
+  Normalize,
+}
+
+struct Operation {
+  operator: Operator,
+  node: *mut Node,
+  operands: List!<*mut Node>,
+}
+
 
 struct Node {
+  name: String,
   shape: SolidShape,
   position: Vector2,
+  color: Color,
+  value: Vector2,
+}
+
+impl Deinit for Node {
+  fn deinit(*mut self) {
+    self.name.deinit();
+  }
+}
+
+struct Context {
+  nodes: List!<Node>,
+  operations: List!<Operation>,
+  node_list_ui: *mut ListBox,
+  node_list_button_style: Style,
+  grid_start: Vector2,
+  font: Font,
+}
+
+mut gContext: Context;
+impl Operation {
+  fn draw(*const self) {
+    switch self.operator {
+      Operator::Distance: {
+        if self.operands.length != 1 {
+          return;
+        }
+        result := self.node.value.distance(self.operands[0].value);
+        halfway := (self.node.position + self.operands[0].position) / 2.0;
+
+        DrawLineV(self.node.position, self.operands[0].position, WHITE.with_alpha(60));
+        
+        buffer := std::asprintf("Distance(%s,%s)=%.2f", get_global_allocator(), self.node.name.data, self.operands[0].name.data, result);
+        defer buffer.deinit();
+
+        delta := self.operands[0].position - self.node.position;
+        angle := atan2(delta.y, delta.x) * (180.0 / PI);
+        normal := (Vector2.{ x: -delta.y, y: delta.x }).normalize();
+        text_offset := normal * 12.0;
+        text_pos := halfway + text_offset;
+        text_size := MeasureTextEx(gContext.font, buffer.data, 16, 1);
+
+        DrawTextPro(
+          gContext.font,
+          buffer.data,
+          text_pos,
+          Vector2.{ x: text_size.x / 2, y: text_size.y / 2 },
+          angle as f32,
+          12,
+          1,
+          ColorLerp(GREEN, WHITE, 0.8)
+        );
+
+
+      }
+      Operator::Dot: {
+        if self.operands.length != 1 {
+          return;
+        }
+      
+        a := self.node;
+        b := self.operands[0];
+      
+        result := a.value.dot(b.value);
+      
+        // Draw both vectors from the same origin (for visualization)
+        DrawLineV(a.position, b.position, WHITE.with_alpha(40));
+      
+        // Draw projection of a onto b
+        ab := b.position - a.position;
+        a_vec := a.value;
+        b_vec := b.value;
+        b_dir := b_vec.normalize();
+        proj_length := a_vec.dot(b_dir);
+        proj_vec := b_dir * proj_length;
+      
+        // Projected point in world space
+        proj_point := a.position + proj_vec;
+      
+        DrawLineV(a.position, proj_point, BLUE.with_alpha(120));
+        DrawCircleV(proj_point, 5, BLUE);
+      
+        // Draw annotation
+        halfway := (a.position + proj_point) / 2.0;
+        buffer := std::asprintf("Dot(%s,%s)=%.2f", get_global_allocator(), a.name.data, b.name.data, result);
+        defer buffer.deinit();
+      
+        delta := proj_point - a.position;
+        normal := (Vector2.{ x: -delta.y, y: delta.x }).normalize();
+        text_offset := normal * 14.0;
+        text_pos := halfway + text_offset;
+        text_size := MeasureTextEx(gContext.font, buffer.data, 16, 1);
+      
+        DrawTextPro(
+          gContext.font,
+          buffer.data,
+          text_pos,
+          Vector2.{ x: text_size.x / 2, y: text_size.y / 2 },
+          0.0,
+          12,
+          1,
+          ColorLerp(BLUE, WHITE, 0.8)
+        );
+      }
+      Operator::Normalize: {
+        if self.operands.length != 0 {
+          return;
+        }
+      }
+    }
+  }
+}
+
+impl Node {
+  fn draw(*mut self) {
+    self.position = self.value + gContext.grid_start + .{ x: 14.0, y: 14.0, };
+    self.shape.draw(self.position, self.color);
+    FormatOptions::current().quote_strings = false;
+    draw_textf("(%) x=%, y=%", (self.name, self.value.x, self.value.y), self.position + Vector2::scalar(12), Style.{ font_size: 12, font: gContext.font, });
+    FormatOptions::current().quote_strings = true;
+  }
 }
 
 struct Grid {
@@ -11,30 +185,11 @@ struct Grid {
   nodes: List!<Option!<Node>>,
 }
 
-impl Grid {
-  fn get_node_at(*const self, x: u64, y: u64) -> *mut Option!<Node> {
-    return &mut self.nodes[x * y];
-  }
-  fn get_node_size(self) -> Vector2 {
-    return Vector2.{
-      x: self.base.rectangle.width / self.subdivisions,
-      y: self.base.rectangle.height / self.subdivisions,
-    };
-  }
-}
-
 impl Widget for Grid {
+  fn get_children(*const self) -> *mut List!<dyn Widget> {
+    return null;
+  }
   fn draw(*mut self) {
-    
-    capacity := self.subdivisions * self.subdivisions;
-    if self.nodes.length != capacity {
-      self.nodes.resize(capacity);
-      for i in self.nodes.length..capacity {
-        self.nodes.push(None());
-      }
-      std::printf("resizing: nodes.length=%d\n", self.nodes.length);
-    }
-
     // Draw the grid.
     DrawRectangleLinesEx(self.base.rectangle, self.base.style.line_thickness, self.base.style.background);
 
@@ -67,70 +222,189 @@ impl Widget for Grid {
       }
     }
 
-    if self.base.input_state == InputState::Hovered {
+    if self.base.input_state & InputState::Hovered {
       mouse := GetMousePosition();
-      size := self.get_node_size();
-    
-      cell_x := clamp(floor((mouse.x - self.base.rectangle.x) / size.x) as f32, 0.0, (self.subdivisions - 1) as f32);
-      cell_y := clamp(floor((mouse.y - self.base.rectangle.y) / size.y) as f32, 0.0, (self.subdivisions - 1) as f32);
-    
-      cell_pos := Vector2.{
-        x: self.base.rectangle.x + cell_x * size.x,
-        y: self.base.rectangle.y + cell_y * size.y,
+      cell_size := Vector2.{
+        x: self.base.rectangle.width / self.subdivisions,
+        y: self.base.rectangle.height / self.subdivisions,
       };
     
-      DrawRectangleV(cell_pos, size, RED.with_alpha(90));
+      cell_x := clamp(floor((mouse.x - self.base.rectangle.x) / cell_size.x) as f32, 0.0, (self.subdivisions - 1) as f32);
+      cell_y := clamp(floor((mouse.y - self.base.rectangle.y) / cell_size.y) as f32, 0.0, (self.subdivisions - 1) as f32);
+    
+      cell_pos := Vector2.{
+        x: self.base.rectangle.x + cell_x * cell_size.x,
+        y: self.base.rectangle.y + cell_y * cell_size.y,
+      };
+    
+      draw_textf("x=%, y=%", (cell_pos.x - gContext.grid_start.x, cell_pos.y - gContext.grid_start.x), cell_pos + Vector2::scalar(15), Style.{ font_size: 15, font: gContext.font, font_color_override: Some(WHITE.with_alpha(200))});
+
+      DrawRectangleV(cell_pos, cell_size, YELLOW.with_alpha(50));
+
+      if self.base.input_state & InputState::Pressed {
+        #static mut name_idx := 65;
+
+        node := Node.{
+          shape: SolidShape::Circle.{ radius: 10.0 }
+          value: cell_pos - gContext.grid_start,
+          color: WHITE,
+          name: std::asprintf("%c", get_global_allocator(), name_idx++),
+        };
+
+        gContext.nodes.push(node);
+
+        gContext.node_list_ui.add_child(new(Button!<Context>.{
+          base: .{
+            style: gContext.node_list_button_style,
+          }
+          on_clicked: fn (ctx: *mut Context) {
+            std::printf("we have %d nodes!\n", ctx.nodes.length);
+          } 
+          label: Some(node.name),
+          user_arg: &mut gContext,
+        }));
+
+      }
     }
   }
 }
 
 fn main() {
-  mut window := rayui::Window!<()>::new();
+  mut window := Window!<()>::new();
+  gContext.font =  LoadFont("assets/FiraCode-Bold.ttf"c);
+
+  gContext.node_list_button_style = .{
+    foreground: WHITE,
+    background: BLACK.with_alpha(25),
+    highlighted: ORANGE,
+    line_thickness: 2,
+    font_size: 16,
+    font_spacing: 1,
+    font_color_override: Some(GRAY),
+    font: gContext.font,
+  };
 
   mut grid: Grid = .{
-    subdivisions: 64,
+    subdivisions: 32,
     base: .{
       rectangle: .{
-        x: 40,
+        x: 120,
         y: 40,
-        width: 725,
+        width: 725 - 80,
         height: 520,
       },
       style: .{
         background: GRAY,
+        font: gContext.font,
       }
     }
   };
 
+  gContext.grid_start = .{
+    x: grid.base.rectangle.x,
+    y: grid.base.rectangle.y,
+  };
+
+  mut node_list: ListBox = .{
+    base: .{
+      rectangle: .{
+        x: 10,
+        y: 40,
+        width: 100,
+        height: 520,
+      },
+      style: .{
+        font: gContext.font,
+        background: GRAY,
+        foreground: WHITE,
+      }
+    }
+  };
+
+  gContext.node_list_ui = &mut node_list;
+
+  window.add_widget(&mut node_list);
   window.add_widget(&mut grid);
-  
 
   while !WindowShouldClose() {
     BeginDrawing();
     ClearBackground(window.background_color);
+
+    if IsKeyPressed(KeyboardKey::KEY_D)  {
+      if IsKeyDown(KeyboardKey::KEY_LEFT_SHIFT) {
+        gContext.operations.push(.{
+          node: &mut gContext.nodes[0],
+          operands: List!<*mut Node>::init(.[
+            &mut gContext.nodes[1],
+          ]),
+          operator: Operator::Dot,
+        });
+      } else {
+        gContext.operations.push(.{
+          node: &mut gContext.nodes[0],
+          operands: List!<*mut Node>::init(.[
+            &mut gContext.nodes[1],
+          ]),
+          operator: Operator::Distance,
+        });
+      }
+    }
+
+    if IsKeyPressed(KeyboardKey::KEY_C) {
+      gContext.operations.clear();
+      gContext.nodes.clear();
+      gContext.node_list_ui.get_children().clear();
+    }
+
     window.widgets.sort(fn(widget: *const dyn Widget) -> u32 {
       return widget.get_base().layer;
     });
 
+    fn handle_events(mouse_position: Vector2, widget: *mut dyn Widget) -> bool {
+      base := widget.get_base();
+      mut handled := false;
+
+      base.input_state = InputState::None;
+      if CheckCollisionPointRec(mouse_position, base.rectangle) {
+        base.input_state = InputState::Hovered;
+        handled = true;
+
+        if IsMouseButtonPressed(MouseButton::MOUSE_BUTTON_LEFT) {
+          base.input_state |= InputState::Pressed;
+        }
+      }
+
+      children := widget.get_children();
+      if children {
+        for child in children.iter_mut() {
+          if handle_events(mouse_position, child) {
+            base.input_state = InputState::None;
+          }
+        }
+      }
+
+      return handled;
+    }
+
     { // Handle events.
       mouse_position := GetMousePosition();
       for widget in window.widgets.iter_mut() {
-        base := widget.get_base();
-        base.input_state = InputState::None;
-        if CheckCollisionPointRec(mouse_position, base.rectangle) {
-          base.input_state = InputState::Hovered;
-
-          if IsMouseButtonPressed(MouseButton::MOUSE_BUTTON_LEFT) {
-            base.input_state |= InputState::Pressed;
-          }
-        }
-
+        handle_events(mouse_position, widget);
       }
     }
 
     for widget in window.widgets.iter_mut() {
       widget.draw();
     }
+
+    for node in gContext.nodes.iter_mut() {
+      node.draw();
+    }
+
+    for operation in gContext.operations.iter_mut() {
+      operation.draw();
+    }
+
     EndDrawing();
   }
 
