@@ -1,5 +1,5 @@
 
-import ui::*;
+import rayui::*;
 
 fn main() {
   mut window := Window!<()>::new();
