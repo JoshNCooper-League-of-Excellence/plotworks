@@ -272,6 +272,26 @@ fn main() {
     y: grid.base.rectangle.y,
   };
 
+
+  // We need to scale the values of the nodes to the adjusted screen size.
+  // this is rather easy.
+  window.on_resized_callbacks.push((
+    &mut gContext,
+    fn (arg: *mut void, old: Rectangle, new: Rectangle) {
+      ctx: *mut Context = arg;
+      for node in ctx.nodes.iter_mut() {
+        model: Vector2 = .{
+          x: node.value.x / old.width,
+          y: node.value.y / old.height
+        };
+        node.value = .{
+          x: model.x * new.width,
+          y: model.y * new.height,
+        };
+      }
+    }
+  ));
+
   mut node_list: ListBox = .{
     base: .{
       model_rectangle: .{
@@ -292,12 +312,6 @@ fn main() {
 
   window.add_widget(&mut node_list);
   window.add_widget(&mut grid);
-
-  window.on_resized(.{
-    x: 0, y: 0,
-    width: GetScreenWidth(),
-    height: GetScreenHeight(),
-  });
 
   while !WindowShouldClose() {
     BeginDrawing();
