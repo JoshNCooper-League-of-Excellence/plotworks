@@ -1,0 +1,137 @@
+import rayui::*;
+
+struct Node {
+  shape: SolidShape,
+  position: Vector2,
+}
+
+struct Grid {
+  base: WidgetBase,
+  subdivisions: u32 = 16,
+  nodes: List!<Option!<Node>>,
+}
+
+impl Grid {
+  fn get_node_at(*const self, x: u64, y: u64) -> *mut Option!<Node> {
+    return &mut self.nodes[x * y];
+  }
+  fn get_node_size(self) -> Vector2 {
+    return Vector2.{
+      x: self.base.rectangle.width / self.subdivisions,
+      y: self.base.rectangle.height / self.subdivisions,
+    };
+  }
+}
+
+impl Widget for Grid {
+  fn draw(*mut self) {
+    
+    capacity := self.subdivisions * self.subdivisions;
+    if self.nodes.length != capacity {
+      self.nodes.resize(capacity);
+      for i in self.nodes.length..capacity {
+        self.nodes.push(None());
+      }
+      std::printf("resizing: nodes.length=%d\n", self.nodes.length);
+    }
+
+    // Draw the grid.
+    DrawRectangleLinesEx(self.base.rectangle, self.base.style.line_thickness, self.base.style.background);
+
+    // Draw the cells.
+    {
+      size := Vector2.{ x: self.base.rectangle.width, y: self.base.rectangle.height };
+      rect_x := self.base.rectangle.x;
+      rect_y := self.base.rectangle.y;
+
+      // Draw vertical grid lines
+      xstep := size.x / self.subdivisions;
+      for x in 0..self.subdivisions + 1 {
+        xpos := rect_x + xstep * x;
+        DrawLineV(
+          Vector2.{ x: xpos, y: rect_y },
+          Vector2.{ x: xpos, y: rect_y + size.y },
+          self.base.style.background
+        );
+      }
+
+      // Draw horizontal grid lines
+      ystep := size.y / self.subdivisions;
+      for y in 0..self.subdivisions + 1 {
+        ypos := rect_y + ystep * y;
+        DrawLineV(
+          Vector2.{ x: rect_x, y: ypos },
+          Vector2.{ x: rect_x + size.x, y: ypos },
+          self.base.style.background
+        );
+      }
+    }
+
+    if self.base.input_state == InputState::Hovered {
+      mouse := GetMousePosition();
+      size := self.get_node_size();
+    
+      cell_x := clamp(floor((mouse.x - self.base.rectangle.x) / size.x) as f32, 0.0, (self.subdivisions - 1) as f32);
+      cell_y := clamp(floor((mouse.y - self.base.rectangle.y) / size.y) as f32, 0.0, (self.subdivisions - 1) as f32);
+    
+      cell_pos := Vector2.{
+        x: self.base.rectangle.x + cell_x * size.x,
+        y: self.base.rectangle.y + cell_y * size.y,
+      };
+    
+      DrawRectangleV(cell_pos, size, RED.with_alpha(90));
+    }
+  }
+}
+
+fn main() {
+  mut window := rayui::Window!<()>::new();
+
+  mut grid: Grid = .{
+    subdivisions: 64,
+    base: .{
+      rectangle: .{
+        x: 40,
+        y: 40,
+        width: 725,
+        height: 520,
+      },
+      style: .{
+        background: GRAY,
+      }
+    }
+  };
+
+  window.add_widget(&mut grid);
+  
+
+  while !WindowShouldClose() {
+    BeginDrawing();
+    ClearBackground(window.background_color);
+    window.widgets.sort(fn(widget: *const dyn Widget) -> u32 {
+      return widget.get_base().layer;
+    });
+
+    { // Handle events.
+      mouse_position := GetMousePosition();
+      for widget in window.widgets.iter_mut() {
+        base := widget.get_base();
+        base.input_state = InputState::None;
+        if CheckCollisionPointRec(mouse_position, base.rectangle) {
+          base.input_state = InputState::Hovered;
+
+          if IsMouseButtonPressed(MouseButton::MOUSE_BUTTON_LEFT) {
+            base.input_state |= InputState::Pressed;
+          }
+        }
+
+      }
+    }
+
+    for widget in window.widgets.iter_mut() {
+      widget.draw();
+    }
+    EndDrawing();
+  }
+
+}
