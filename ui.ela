@@ -453,45 +453,6 @@ impl ListBox {
   }
 }
 
-
-
-struct FreeformArea {
-  base: WidgetBase,
-  screen_to_nodespace: fn *(Vector2) -> Vector2,
-}
-
-impl Widget for FreeformArea {
-  fn get_children(*const self) -> *mut List!<dyn Widget> {
-    return null;
-  }
-  fn draw(*mut self) {
-    // Draw the freeform_area.
-    DrawRectangleLinesEx(self.base.rectangle, self.base.style.line_thickness, self.base.style.background);
-
-    if self.base.input_state & InputState::Hovered {
-      mouse := GetMousePosition();
-      mut shape := SolidShape::Circle.{ radius: 5.0 };
-      shape.draw(mouse, WHITE.with_alpha(90));
-      nodespace_pos := self.screen_to_nodespace(mouse);
-
-
-      if !IsMouseButtonDown(MouseButton::MOUSE_BUTTON_RIGHT) && !IsMouseButtonDown(MouseButton::MOUSE_BUTTON_LEFT) {
-        draw_textf("x=%, y=%", 
-          (nodespace_pos.x, nodespace_pos.y), 
-          mouse + Vector2::scalar(15), 
-          Style.{ 
-            font_size: 15, 
-            font: self.base.style.font, 
-            font_color_override: Some(WHITE.with_alpha(200))
-          },
-          *FormatOptions::current(),
-        );
-      }
-    }
-  }
-}
-
-
 // ! This stuff needs to be reimplemented
 #if 0 {
   // * Measure the width of a jiggly text of 'text' and 'style'

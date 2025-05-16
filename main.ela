@@ -6,6 +6,32 @@ import fmt::*;
 struct Node;
 struct Operation;
 
+fn screen_to_nodespace(screen_pos: Vector2) -> Vector2;
+fn nodespace_to_screen(node_value: Vector2) -> Vector2;
+
+enum PlacementMode {
+  None,
+  Node,
+  Operation,
+  MAX,
+}
+
+enum Operator {
+  Distance,
+  Dot,
+  Normalize,
+  MAX,
+}
+
+struct FreeformArea {
+  base: WidgetBase,
+  placement_mode: PlacementMode,
+
+  selected_left: *mut Node,
+  selected_right: *mut Node,
+  selected_operator: Operator,
+}
+
 struct Context {
   nodes: List!<Node>,
   operations: List!<Operation>,
@@ -15,6 +41,7 @@ struct Context {
   node_list_button_style: Style,
   font: Font,
 }
+
 mut gContext: Context;
 
 fn nodespace_to_screen(node_value: Vector2) -> Vector2 {
@@ -33,16 +60,14 @@ fn screen_to_nodespace(screen_pos: Vector2) -> Vector2 {
   };
 }
 
-enum Operator {
-  Distance,
-  Dot,
-  Normalize,
-}
+
 
 struct Operation {
   operator: Operator,
-  node: *mut Node,
-  operands: List!<*mut Node>,
+  // TODO: add a way to do arbitrary num of operands.
+  // Probably a choice type.
+  left: *mut Node,
+  right: *mut Node,
 }
 
 struct Node {
@@ -54,28 +79,212 @@ struct Node {
   dragging: bool,
 }
 
+impl Widget for FreeformArea {
+  fn get_children(*const self) -> *mut List!<dyn Widget> {
+    return null;
+  }
+
+  fn draw(*mut self) {
+    DrawRectangleLinesEx(
+      self.base.rectangle, 
+      self.base.style.line_thickness, 
+      self.base.style.background
+    );
+
+    if self.base.input_state & InputState::Hovered == 0 
+      then return;
+
+
+    // Hover logic.
+    {
+
+      for node in gContext.nodes.iter_mut() {
+        if node.dragging {
+          if self.placement_mode != PlacementMode::Node || !IsMouseButtonDown(MouseButton::MOUSE_BUTTON_RIGHT) {
+            node.dragging = false; 
+            return;
+          }
+          node.value = screen_to_nodespace(GetMousePosition());
+        }
+      }
+
+      mut mouse_wheel := GetMouseWheelMove();
+
+      if mouse_wheel != 0 {
+        if mouse_wheel > 0 {
+          mouse_wheel = 1.1;
+        } else {
+          mouse_wheel = -1.1;
+        }
+        self.placement_mode = clamp((self.placement_mode + mouse_wheel as s32) % PlacementMode::MAX, 0, PlacementMode::MAX);
+      }
+
+      switch self.placement_mode {
+        PlacementMode::Node: {
+          mouse := GetMousePosition();
+          mut shape := SolidShape::Circle.{ radius: 5.0 };
+          shape.draw(mouse, WHITE.with_alpha(90));
+          nodespace_pos := screen_to_nodespace(mouse);
+
+          draw_textf("x=%, y=%", 
+            (nodespace_pos.x, nodespace_pos.y), 
+            mouse + Vector2::scalar(15), 
+            Style.{ 
+              font_size: 15, 
+              font: self.base.style.font, 
+              font_color_override: Some(WHITE.with_alpha(200))
+            },
+            *FormatOptions::current(),
+          );
+        }
+        PlacementMode::Operation: {
+          mouse := GetMousePosition();
+          mut tuple: (Operator, String, String) = (self.selected_operator, .{}, .{});
+          mut needs_freed: (bool, bool) = (false, false);
+          if self.selected_left {
+            tuple.1 = self.selected_left.name;
+          } else {
+            tuple.1 = String::from("null");
+            needs_freed.0 = true;
+          }
+
+          if self.selected_right {
+            tuple.2 = self.selected_right.name;
+          } else {
+            tuple.2 = String::from("null");
+            needs_freed.1 = true;
+          }
+
+          defer {
+            a, b := needs_freed;
+            if a {
+              tuple.1.deinit();
+            }
+            if b {
+              tuple.2.deinit();
+            }
+          }
+
+          draw_textf("%(%,%)",
+            tuple,
+            mouse + Vector2::scalar(15), 
+            Style.{ 
+              font_size: 15, 
+              font: self.base.style.font, 
+              font_color_override: Some(WHITE.with_alpha(200))
+            },
+            *FormatOptions::current(),
+          );
+        }
+      }
+    }
+
+    // Click logic
+    if self.base.input_state & InputState::Pressed {
+      mouse_pos := GetMousePosition()
+      if IsMouseButtonPressed(MouseButton::MOUSE_BUTTON_RIGHT) {
+        switch self.placement_mode {
+          PlacementMode::Node: {
+            for node in gContext.nodes.iter_mut() {
+              if CheckCollisionPointCircle(nodespace_to_screen(node.value), mouse_pos, 10.0) {
+                node.dragging = true;
+                break;
+              }
+            }
+          }
+          PlacementMode::Operation: {
+            if IsKeyDown(KeyboardKey::KEY_LEFT_SHIFT) {
+              self.selected_operator = (self.selected_operator + 1) % Operator::MAX;
+            } else {
+              if self.selected_left && self.selected_right {
+                gContext.operations.push(.{
+                  left: self.selected_left,
+                  right: self.selected_right,
+                  operator: self.selected_operator,
+                });
+                self.selected_left = null;
+                self.selected_right = null;
+                self.selected_operator = 0;
+              }
+            }
+          }
+        }
+      } else if IsMouseButtonDown(MouseButton::MOUSE_BUTTON_LEFT) {
+        switch self.placement_mode {
+          PlacementMode::Node: {
+            nodespace_pos := screen_to_nodespace(mouse_pos);
+            for node in gContext.nodes {
+              if node.value == nodespace_pos {
+                return;
+              }
+            }
+            #static mut name_idx := 65;
+            node := Node.{
+              shape: SolidShape::Circle.{ radius: 5.0 }
+              value: nodespace_pos,
+              color: WHITE,
+              name: std::asprintf("%c", get_global_allocator(), name_idx++),
+            };
+            gContext.nodes.push(node);
+            gContext.node_list_ui.add_child(new(Button!<Context>.{
+              base: .{
+                style: gContext.node_list_button_style,
+              }
+              on_clicked: fn (ctx: *mut Context) {
+                std::printf("we have %d nodes!\n", ctx.nodes.length);
+              }
+              label: Some(node.name),
+              user_arg: &mut gContext,
+            }));
+          }
+          PlacementMode::Operation: {
+            if IsKeyDown(KeyboardKey::KEY_LEFT_SHIFT) {
+              mut found_node: *mut Node;
+              mouse_pos := GetMousePosition();
+              for node in gContext.nodes.iter_mut() {
+                if CheckCollisionPointCircle(nodespace_to_screen(node.value), mouse_pos, 10.0) {
+                  found_node = node;
+                  break;
+                }
+              }
+
+              if !found_node {
+                return;
+              }
+
+              if !self.selected_left {
+                self.selected_left = found_node;
+              } else if !self.selected_right {
+                self.selected_right = found_node;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 impl Operation {
   fn draw(*const self) {
     switch self.operator {
       Operator::Distance: {
-        if self.operands.length != 1 {
+        if !self.right {
           return;
         }
 
-        operand := self.operands[0];
+        left_ss := nodespace_to_screen(self.left.value);
+        right_ss := nodespace_to_screen(self.right.value);
 
-        node_ss := nodespace_to_screen(self.node.value);
-        operand_ss := nodespace_to_screen(operand.value);
+        result := self.left.value.distance(self.right.value);
+        halfway := (left_ss + right_ss) / 2.0;
 
-        result := self.node.value.distance(operand.value);
-        halfway := (node_ss + operand_ss) / 2.0;
+        DrawLineV(left_ss, right_ss, WHITE.with_alpha(60));
 
-        DrawLineV(node_ss, operand_ss, WHITE.with_alpha(60));
-
-        buffer := std::asprintf("Distance(%s,%s)=%.4f", get_global_allocator(), self.node.name.data, operand.name.data, result);
+        buffer := std::asprintf("Distance(%s,%s)=%.4f", get_global_allocator(), self.left.name.data, self.right.name.data, result);
         defer buffer.deinit();
 
-        delta := operand_ss - node_ss;
+        delta := right_ss - left_ss;
         angle := atan2(delta.y, delta.x) * (180.0 / PI);
         normal := (Vector2.{ x: -delta.y, y: delta.x }).normalize();
         text_offset := normal * 12.0;
@@ -94,12 +303,10 @@ impl Operation {
         );
       }
       Operator::Dot: {
-        if self.operands.length != 1 {
+        if !self.right {
           return;
         }
-
-        a := self.node;
-        b := self.operands[0];
+        a, b := (self.left, self.right);
 
         result := a.value.dot(b.value);
 
@@ -146,9 +353,7 @@ impl Operation {
         );
       }
       Operator::Normalize: {
-        if self.operands.length != 0 {
-          return;
-        }
+        
       }
     }
   }
@@ -201,59 +406,6 @@ fn main() {
         font: gContext.font,
       }
     }
-    screen_to_nodespace: &mut screen_to_nodespace
-  };
-
-  freeform_area.base.on_hovered = fn(base: *mut WidgetBase, position: Vector2) {
-    for node in gContext.nodes.iter_mut() {
-      if node.dragging {
-        if !IsMouseButtonDown(MouseButton::MOUSE_BUTTON_RIGHT) {
-          node.dragging = false; 
-          return;
-        }
-        node.value = screen_to_nodespace(GetMousePosition());
-      }
-    }
-  };
-
-  freeform_area.base.on_pressed = fn(base: *mut WidgetBase, btn: s32) -> bool {
-    mouse_pos := GetMousePosition()
-    if btn == MouseButton::MOUSE_BUTTON_RIGHT {
-      for node in gContext.nodes.iter_mut() {
-        if CheckCollisionPointCircle(nodespace_to_screen(node.value), mouse_pos, 10.0) {
-          node.dragging = true;
-          break;
-        }
-      }
-
-    } else {
-      nodespace_pos := screen_to_nodespace(mouse_pos);
-      for node in gContext.nodes {
-        if node.value == nodespace_pos {
-          return false;
-        }
-      }
-      #static mut name_idx := 65;
-      node := Node.{
-        shape: SolidShape::Circle.{ radius: 5.0 }
-        value: nodespace_pos,
-        color: WHITE,
-        name: std::asprintf("%c", get_global_allocator(), name_idx++),
-      };
-      gContext.nodes.push(node);
-      gContext.node_list_ui.add_child(new(Button!<Context>.{
-        base: .{
-          style: gContext.node_list_button_style,
-        }
-        on_clicked: fn (ctx: *mut Context) {
-          std::printf("we have %d nodes!\n", ctx.nodes.length);
-        }
-        label: Some(node.name),
-        user_arg: &mut gContext,
-      }));
-    }
-
-    return true;
   };
 
   mut node_list: ListBox = .{
@@ -289,27 +441,7 @@ fn main() {
         height: GetScreenHeight(),
       });
     }
-
-    if IsKeyPressed(KeyboardKey::KEY_D)  {
-      if IsKeyDown(KeyboardKey::KEY_LEFT_SHIFT) {
-        gContext.operations.push(.{
-          node: &mut gContext.nodes[0],
-          operands: List!<*mut Node>::init(.[
-            &mut gContext.nodes[1],
-          ]),
-          operator: Operator::Dot,
-        });
-      } else {
-        gContext.operations.push(.{
-          node: &mut gContext.nodes[0],
-          operands: List!<*mut Node>::init(.[
-            &mut gContext.nodes[1],
-          ]),
-          operator: Operator::Distance,
-        });
-      }
-    }
-
+    
     if IsKeyPressed(KeyboardKey::KEY_C) {
       gContext.operations.clear();
       gContext.nodes.clear();
@@ -391,12 +523,6 @@ fn main() {
     for operation in gContext.operations.iter_mut() {
       operation.draw();
     }
-
-    if !gContext.nodes.is_empty() {
-      node := gContext.nodes[0];
-      fmt::println(nodespace_to_screen(node.value));
-    }
-
 
     EndDrawing();
   }
