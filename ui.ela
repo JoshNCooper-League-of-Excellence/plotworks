@@ -59,6 +59,7 @@ struct WidgetBase {
   style: Style,
   // the bounds and position.
   rectangle: Rectangle,
+  model_rectangle: Rectangle,
 
   on_pressed:   fn * (MouseButton) -> bool,
   on_released:  fn * (MouseButton) -> bool,
@@ -88,6 +89,22 @@ trait Widget {
 
   // draw with no stateful logic.
   fn draw(*mut self);
+
+  fn on_window_resized(*mut self, screen: Rectangle) {
+    base := self.get_base()
+    base.rectangle.x = base.model_rectangle.x * screen.x;
+    base.rectangle.y = base.model_rectangle.y * screen.y;
+    base.rectangle.width = base.model_rectangle.width * screen.width;
+    base.rectangle.height = base.model_rectangle.height * screen.height;
+
+    children := self.get_children();
+
+    if children {
+      for child in children.iter_mut() {
+        child.on_window_resized(screen);
+      }
+    }
+  }
 }
 
 choice Event {
@@ -105,9 +122,12 @@ struct Button!<UserArg> {
   // callback argument.
   user_arg:     *mut UserArg,
   on_clicked:   fn * (*mut UserArg),
+  
   in_edit_mode: bool = false,
+  pre_edit_style: Style,
 
-  old_style: Style,
+
+
 }
 
 struct Slider!<TString, T> where TString: AsByteSlice {
@@ -170,10 +190,22 @@ struct Window!<Ctx> {
   init_hooks: List!<fn * (*mut void)>,
   // TODO: when we have default generics, we can have a default stub here. for now, just *mut void.
   user_context: *mut Ctx,
+  on_resized_callbacks: List!<(*mut void, fn * (*mut void, Rectangle, Rectangle))>,
+  screen_size: Rectangle,
 }
 
 impl!<Ctx> Window!<Ctx> {
   alias RenderHook :: fn * (*mut Ctx);
+
+  fn on_resized(*mut self, new_size: Rectangle) {
+    for arg, callback in self.on_resized_callbacks {
+      callback(arg, self.screen_size, new_size);
+    }
+    for widget in self.widgets.iter_mut() {
+      widget.on_window_resized(new_size);
+    }
+    self.screen_size = new_size;
+  }
 
   fn new(title: str = "Rayui Window",
         size: Vector2 = .{x: 800, y: 600},
@@ -182,6 +214,12 @@ impl!<Ctx> Window!<Ctx> {
     InitWindow(size.x as s32, size.y as s32, title.data);
     SetTargetFPS(target_fps);
     return .{
+      screen_size: .{
+        x: 0,
+        y: 0,
+        width: GetScreenWidth(),
+        height: GetScreenHeight(),
+      }
       background_color: background_color
     };
   }
@@ -236,7 +274,14 @@ impl!<Ctx> Window!<Ctx> {
   }
 
   fn add_widget!<T>(*mut self, t: *mut T) -> #self where T: Widget  {
-    self.widgets.push(dynof(t, Widget));
+    trait_obj := dynof(t, Widget);
+    trait_obj.on_window_resized(.{
+      x: 0, y: 0,
+      width: GetScreenWidth(),
+      height: GetScreenHeight(),
+    });
+    self.widgets.push(trait_obj);
+
     return *self;
   }
 
@@ -330,7 +375,7 @@ impl!<UserArg> Widget for Button!<UserArg> {
 
     if !self.in_edit_mode && self.base.input_state & InputState::Hovered && IsKeyDown(KeyboardKey::KEY_F2) {
       self.in_edit_mode = true;
-      self.old_style = self.base.style;
+      self.pre_edit_style = self.base.style;
       self.base.style.font_color_override = Some(WHITE);
       self.base.style.background = YELLOW.with_alpha(25);
       self.base.style.highlighted = CLEAR;
@@ -338,7 +383,7 @@ impl!<UserArg> Widget for Button!<UserArg> {
 
     if self.in_edit_mode && IsKeyPressed(KeyboardKey::KEY_ENTER) {
       self.in_edit_mode = false;
-      self.base.style = self.old_style;
+      self.base.style = self.pre_edit_style;
     }
 
     if self.in_edit_mode {

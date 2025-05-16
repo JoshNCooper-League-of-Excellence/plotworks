@@ -13,7 +13,7 @@ impl Widget for ListBox {
     DrawRectangleRec(self.base.rectangle, self.base.style.background.with_alpha(20));
     DrawRectangleLinesEx(self.base.rectangle, self.base.style.line_thickness, self.base.style.background);
     const MARGIN := 10.0;
-    position: Vector2 = .{ x: self.base.rectangle.x, y: self.base.rectangle.y  }; 
+    position: Vector2 = .{ x: self.base.rectangle.x, y: self.base.rectangle.y  };
     for child in self.children.iter_mut() {
       base := child.get_base();
       rect := &mut base.rectangle;
@@ -51,7 +51,6 @@ struct Operation {
   operands: List!<*mut Node>,
 }
 
-
 struct Node {
   name: String,
   shape: SolidShape,
@@ -87,7 +86,7 @@ impl Operation {
         halfway := (self.node.position + self.operands[0].position) / 2.0;
 
         DrawLineV(self.node.position, self.operands[0].position, WHITE.with_alpha(60));
-        
+
         buffer := std::asprintf("Distance(%s,%s)=%.2f", get_global_allocator(), self.node.name.data, self.operands[0].name.data, result);
         defer buffer.deinit();
 
@@ -115,15 +114,15 @@ impl Operation {
         if self.operands.length != 1 {
           return;
         }
-      
+
         a := self.node;
         b := self.operands[0];
-      
+
         result := a.value.dot(b.value);
-      
+
         // Draw both vectors from the same origin (for visualization)
         DrawLineV(a.position, b.position, WHITE.with_alpha(40));
-      
+
         // Draw projection of a onto b
         ab := b.position - a.position;
         a_vec := a.value;
@@ -131,24 +130,24 @@ impl Operation {
         b_dir := b_vec.normalize();
         proj_length := a_vec.dot(b_dir);
         proj_vec := b_dir * proj_length;
-      
+
         // Projected point in world space
         proj_point := a.position + proj_vec;
-      
+
         DrawLineV(a.position, proj_point, BLUE.with_alpha(120));
         DrawCircleV(proj_point, 5, BLUE);
-      
+
         // Draw annotation
         halfway := (a.position + proj_point) / 2.0;
         buffer := std::asprintf("Dot(%s,%s)=%.2f", get_global_allocator(), a.name.data, b.name.data, result);
         defer buffer.deinit();
-      
+
         delta := proj_point - a.position;
         normal := (Vector2.{ x: -delta.y, y: delta.x }).normalize();
         text_offset := normal * 14.0;
         text_pos := halfway + text_offset;
         text_size := MeasureTextEx(gContext.font, buffer.data, 16, 1);
-      
+
         DrawTextPro(
           gContext.font,
           buffer.data,
@@ -171,10 +170,10 @@ impl Operation {
 
 impl Node {
   fn draw(*mut self) {
-    self.position = self.value + gContext.grid_start + .{ x: 14.0, y: 14.0, };
+    self.position = self.value + gContext.grid_start + .{ x: 11.0, y: 11.0, };
     self.shape.draw(self.position, self.color);
     FormatOptions::current().quote_strings = false;
-    draw_textf("(%) x=%, y=%", (self.name, self.value.x, self.value.y), self.position + Vector2::scalar(12), Style.{ font_size: 12, font: gContext.font, });
+    draw_textf("% (%, %)", (self.name, self.value.x, self.value.y), self.position + Vector2::scalar(12), Style.{ font_size: 12, font: gContext.font, });
     FormatOptions::current().quote_strings = true;
   }
 }
@@ -193,60 +192,27 @@ impl Widget for Grid {
     // Draw the grid.
     DrawRectangleLinesEx(self.base.rectangle, self.base.style.line_thickness, self.base.style.background);
 
-    // Draw the cells.
-    {
-      size := Vector2.{ x: self.base.rectangle.width, y: self.base.rectangle.height };
-      rect_x := self.base.rectangle.x;
-      rect_y := self.base.rectangle.y;
-
-      // Draw vertical grid lines
-      xstep := size.x / self.subdivisions;
-      for x in 0..self.subdivisions + 1 {
-        xpos := rect_x + xstep * x;
-        DrawLineV(
-          Vector2.{ x: xpos, y: rect_y },
-          Vector2.{ x: xpos, y: rect_y + size.y },
-          self.base.style.background
-        );
-      }
-
-      // Draw horizontal grid lines
-      ystep := size.y / self.subdivisions;
-      for y in 0..self.subdivisions + 1 {
-        ypos := rect_y + ystep * y;
-        DrawLineV(
-          Vector2.{ x: rect_x, y: ypos },
-          Vector2.{ x: rect_x + size.x, y: ypos },
-          self.base.style.background
-        );
-      }
-    }
-
     if self.base.input_state & InputState::Hovered {
       mouse := GetMousePosition();
-      cell_size := Vector2.{
-        x: self.base.rectangle.width / self.subdivisions,
-        y: self.base.rectangle.height / self.subdivisions,
-      };
-    
-      cell_x := clamp(floor((mouse.x - self.base.rectangle.x) / cell_size.x) as f32, 0.0, (self.subdivisions - 1) as f32);
-      cell_y := clamp(floor((mouse.y - self.base.rectangle.y) / cell_size.y) as f32, 0.0, (self.subdivisions - 1) as f32);
-    
-      cell_pos := Vector2.{
-        x: self.base.rectangle.x + cell_x * cell_size.x,
-        y: self.base.rectangle.y + cell_y * cell_size.y,
-      };
-    
-      draw_textf("x=%, y=%", (cell_pos.x - gContext.grid_start.x, cell_pos.y - gContext.grid_start.x), cell_pos + Vector2::scalar(15), Style.{ font_size: 15, font: gContext.font, font_color_override: Some(WHITE.with_alpha(200))});
 
-      DrawRectangleV(cell_pos, cell_size, YELLOW.with_alpha(50));
+      draw_textf("x=%, y=%", (mouse.x - gContext.grid_start.x, mouse.y - gContext.grid_start.x), mouse + Vector2::scalar(15), Style.{ font_size: 15, font: gContext.font, font_color_override: Some(WHITE.with_alpha(200))});
+
+      mut shape := SolidShape::Circle.{ radius: 5.0 };
+      shape.draw(mouse, WHITE.with_alpha(90));
 
       if self.base.input_state & InputState::Pressed {
+
+        for node in gContext.nodes {
+          if node.value == mouse - gContext.grid_start {
+            return;
+          }
+        }
+
         #static mut name_idx := 65;
 
         node := Node.{
-          shape: SolidShape::Circle.{ radius: 10.0 }
-          value: cell_pos - gContext.grid_start,
+          shape: SolidShape::Circle.{ radius: 5.0 }
+          value: mouse - gContext.grid_start - .{ x: 11.0, y: 11.0 },
           color: WHITE,
           name: std::asprintf("%c", get_global_allocator(), name_idx++),
         };
@@ -259,7 +225,7 @@ impl Widget for Grid {
           }
           on_clicked: fn (ctx: *mut Context) {
             std::printf("we have %d nodes!\n", ctx.nodes.length);
-          } 
+          }
           label: Some(node.name),
           user_arg: &mut gContext,
         }));
@@ -270,6 +236,7 @@ impl Widget for Grid {
 }
 
 fn main() {
+  SetConfigFlags(ConfigFlags::FLAG_WINDOW_RESIZABLE);
   mut window := Window!<()>::new();
   gContext.font =  LoadFont("assets/FiraCode-Bold.ttf"c);
 
@@ -287,11 +254,11 @@ fn main() {
   mut grid: Grid = .{
     subdivisions: 32,
     base: .{
-      rectangle: .{
-        x: 120,
-        y: 40,
-        width: 725 - 80,
-        height: 520,
+      model_rectangle: .{
+        x: 0.15,
+        y: 0.06666667,
+        width: 0.80625,
+        height: 0.8666667,
       },
       style: .{
         background: GRAY,
@@ -307,11 +274,11 @@ fn main() {
 
   mut node_list: ListBox = .{
     base: .{
-      rectangle: .{
-        x: 10,
-        y: 40,
-        width: 100,
-        height: 520,
+      model_rectangle: .{
+        x: 0.0125,
+        y: 0.06666667,
+        width: 0.125,
+        height: 0.8666667,
       },
       style: .{
         font: gContext.font,
@@ -326,9 +293,23 @@ fn main() {
   window.add_widget(&mut node_list);
   window.add_widget(&mut grid);
 
+  window.on_resized(.{
+    x: 0, y: 0,
+    width: GetScreenWidth(),
+    height: GetScreenHeight(),
+  });
+
   while !WindowShouldClose() {
     BeginDrawing();
     ClearBackground(window.background_color);
+
+    if IsWindowResized() {
+      window.on_resized(.{
+        x: 0, y: 0,
+        width: GetScreenWidth(),
+        height: GetScreenHeight(),
+      });
+    }
 
     if IsKeyPressed(KeyboardKey::KEY_D)  {
       if IsKeyDown(KeyboardKey::KEY_LEFT_SHIFT) {
