@@ -54,7 +54,6 @@ struct Operation {
 struct Node {
   name: String,
   shape: SolidShape,
-  position: Vector2,
   color: Color,
   value: Vector2,
 }
@@ -64,17 +63,21 @@ impl Deinit for Node {
     self.name.deinit();
   }
 }
-
+struct Grid;
 struct Context {
   nodes: List!<Node>,
   operations: List!<Operation>,
   node_list_ui: *mut ListBox,
+  grid: *mut Grid,
   node_list_button_style: Style,
-  grid_start: Vector2,
   font: Font,
 }
 
 mut gContext: Context;
+
+fn nodespace_to_screen(grid_value: Vector2) -> Vector2;
+fn screen_to_nodespace(screen_pos: Vector2) -> Vector2;
+
 impl Operation {
   fn draw(*const self) {
     switch self.operator {
@@ -82,15 +85,21 @@ impl Operation {
         if self.operands.length != 1 {
           return;
         }
-        result := self.node.value.distance(self.operands[0].value);
-        halfway := (self.node.position + self.operands[0].position) / 2.0;
 
-        DrawLineV(self.node.position, self.operands[0].position, WHITE.with_alpha(60));
+        operand := self.operands[0];
 
-        buffer := std::asprintf("Distance(%s,%s)=%.2f", get_global_allocator(), self.node.name.data, self.operands[0].name.data, result);
+        node_ss := nodespace_to_screen(self.node.value);
+        operand_ss := nodespace_to_screen(operand.value);
+
+        result := self.node.value.distance(operand.value);
+        halfway := (node_ss + operand_ss) / 2.0;
+
+        DrawLineV(node_ss, operand_ss, WHITE.with_alpha(60));
+
+        buffer := std::asprintf("Distance(%s,%s)=%.2f", get_global_allocator(), self.node.name.data, operand.name.data, result);
         defer buffer.deinit();
 
-        delta := self.operands[0].position - self.node.position;
+        delta := operand_ss - node_ss;
         angle := atan2(delta.y, delta.x) * (180.0 / PI);
         normal := (Vector2.{ x: -delta.y, y: delta.x }).normalize();
         text_offset := normal * 12.0;
@@ -107,8 +116,6 @@ impl Operation {
           1,
           ColorLerp(GREEN, WHITE, 0.8)
         );
-
-
       }
       Operator::Dot: {
         if self.operands.length != 1 {
@@ -120,11 +127,14 @@ impl Operation {
 
         result := a.value.dot(b.value);
 
+        a_ss := nodespace_to_screen(a.value);
+        b_ss := nodespace_to_screen(b.value);
+  
         // Draw both vectors from the same origin (for visualization)
-        DrawLineV(a.position, b.position, WHITE.with_alpha(40));
+        DrawLineV(a_ss, b_ss, WHITE.with_alpha(40));
 
         // Draw projection of a onto b
-        ab := b.position - a.position;
+        ab := b_ss - a_ss;
         a_vec := a.value;
         b_vec := b.value;
         b_dir := b_vec.normalize();
@@ -132,17 +142,17 @@ impl Operation {
         proj_vec := b_dir * proj_length;
 
         // Projected point in world space
-        proj_point := a.position + proj_vec;
+        proj_point := a_ss + proj_vec;
 
-        DrawLineV(a.position, proj_point, BLUE.with_alpha(120));
+        DrawLineV(a_ss, proj_point, BLUE.with_alpha(120));
         DrawCircleV(proj_point, 5, BLUE);
 
         // Draw annotation
-        halfway := (a.position + proj_point) / 2.0;
+        halfway := (a_ss + proj_point) / 2.0;
         buffer := std::asprintf("Dot(%s,%s)=%.2f", get_global_allocator(), a.name.data, b.name.data, result);
         defer buffer.deinit();
 
-        delta := proj_point - a.position;
+        delta := proj_point - a_ss;
         normal := (Vector2.{ x: -delta.y, y: delta.x }).normalize();
         text_offset := normal * 14.0;
         text_pos := halfway + text_offset;
@@ -168,19 +178,25 @@ impl Operation {
   }
 }
 
+
 impl Node {
   fn draw(*mut self) {
-    self.position = self.value + gContext.grid_start + .{ x: 11.0, y: 11.0, };
-    self.shape.draw(self.position, self.color);
-    FormatOptions::current().quote_strings = false;
-    draw_textf("% (%, %)", (self.name, self.value.x, self.value.y), self.position + Vector2::scalar(12), Style.{ font_size: 12, font: gContext.font, });
-    FormatOptions::current().quote_strings = true;
+    position := nodespace_to_screen(self.value);
+    self.shape.draw(position, self.color);
+
+    draw_textf("% (%, %)", 
+      (self.name, self.value.x, self.value.y), 
+      position + Vector2::scalar(12),
+      Style.{ 
+        font_size: 12, 
+        font: gContext.font, 
+      }
+    );
   }
 }
 
 struct Grid {
   base: WidgetBase,
-  subdivisions: u32 = 16,
   nodes: List!<Option!<Node>>,
 }
 
@@ -195,7 +211,9 @@ impl Widget for Grid {
     if self.base.input_state & InputState::Hovered {
       mouse := GetMousePosition();
 
-      draw_textf("x=%, y=%", (mouse.x - gContext.grid_start.x, mouse.y - gContext.grid_start.x), mouse + Vector2::scalar(15), Style.{ font_size: 15, font: gContext.font, font_color_override: Some(WHITE.with_alpha(200))});
+      nodespace_pos := screen_to_nodespace(mouse);
+
+      draw_textf("x=%, y=%", (nodespace_pos.x, nodespace_pos.y), mouse + Vector2::scalar(15), Style.{ font_size: 15, font: gContext.font, font_color_override: Some(WHITE.with_alpha(200))});
 
       mut shape := SolidShape::Circle.{ radius: 5.0 };
       shape.draw(mouse, WHITE.with_alpha(90));
@@ -203,7 +221,7 @@ impl Widget for Grid {
       if self.base.input_state & InputState::Pressed {
 
         for node in gContext.nodes {
-          if node.value == mouse - gContext.grid_start {
+          if node.value == nodespace_pos {
             return;
           }
         }
@@ -212,7 +230,7 @@ impl Widget for Grid {
 
         node := Node.{
           shape: SolidShape::Circle.{ radius: 5.0 }
-          value: mouse - gContext.grid_start - .{ x: 11.0, y: 11.0 },
+          value: nodespace_pos,
           color: WHITE,
           name: std::asprintf("%c", get_global_allocator(), name_idx++),
         };
@@ -235,6 +253,22 @@ impl Widget for Grid {
   }
 }
 
+fn nodespace_to_screen(node_value: Vector2) -> Vector2 {
+  rect := gContext.grid.base.rectangle;
+  return Vector2.{
+    x: rect.x + node_value.x * rect.width,
+    y: rect.y + node_value.y * rect.height,
+  };
+}
+
+fn screen_to_nodespace(screen_pos: Vector2) -> Vector2 {
+  rect := gContext.grid.base.rectangle;
+  return Vector2.{
+    x: (screen_pos.x - rect.x) / rect.width,
+    y: (screen_pos.y - rect.y) / rect.height,
+  };
+}
+
 fn main() {
   SetConfigFlags(ConfigFlags::FLAG_WINDOW_RESIZABLE);
   mut window := Window!<()>::new();
@@ -252,7 +286,6 @@ fn main() {
   };
 
   mut grid: Grid = .{
-    subdivisions: 32,
     base: .{
       model_rectangle: .{
         x: 0.15,
@@ -266,31 +299,6 @@ fn main() {
       }
     }
   };
-
-  gContext.grid_start = .{
-    x: grid.base.rectangle.x,
-    y: grid.base.rectangle.y,
-  };
-
-
-  // We need to scale the values of the nodes to the adjusted screen size.
-  // this is rather easy.
-  window.on_resized_callbacks.push((
-    &mut gContext,
-    fn (arg: *mut void, old: Rectangle, new: Rectangle) {
-      ctx: *mut Context = arg;
-      for node in ctx.nodes.iter_mut() {
-        model: Vector2 = .{
-          x: node.value.x / old.width,
-          y: node.value.y / old.height
-        };
-        node.value = .{
-          x: model.x * new.width,
-          y: model.y * new.height,
-        };
-      }
-    }
-  ));
 
   mut node_list: ListBox = .{
     base: .{
@@ -309,6 +317,7 @@ fn main() {
   };
 
   gContext.node_list_ui = &mut node_list;
+  gContext.grid = &mut grid;
 
   window.add_widget(&mut node_list);
   window.add_widget(&mut grid);
@@ -399,6 +408,12 @@ fn main() {
     for operation in gContext.operations.iter_mut() {
       operation.draw();
     }
+
+    if !gContext.nodes.is_empty() {
+      node := gContext.nodes[0];
+      fmt::println(nodespace_to_screen(node.value));
+    }
+
 
     EndDrawing();
   }

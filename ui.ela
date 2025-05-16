@@ -198,11 +198,11 @@ impl!<Ctx> Window!<Ctx> {
   alias RenderHook :: fn * (*mut Ctx);
 
   fn on_resized(*mut self, new_size: Rectangle) {
-    for arg, callback in self.on_resized_callbacks {
-      callback(arg, self.screen_size, new_size);
-    }
     for widget in self.widgets.iter_mut() {
       widget.on_window_resized(new_size);
+    }
+    for arg, callback in self.on_resized_callbacks {
+      callback(arg, self.screen_size, new_size);
     }
     self.screen_size = new_size;
   }
