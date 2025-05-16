@@ -3,41 +3,35 @@
 
 import fmt::*;
 
-struct ListBox {
-  base: WidgetBase,
-  children: List!<dyn Widget>,
-}
-
-impl Widget for ListBox {
-  fn draw(*mut self) {
-    DrawRectangleRec(self.base.rectangle, self.base.style.background.with_alpha(20));
-    DrawRectangleLinesEx(self.base.rectangle, self.base.style.line_thickness, self.base.style.background);
-    const MARGIN := 10.0;
-    position: Vector2 = .{ x: self.base.rectangle.x, y: self.base.rectangle.y  };
-    for child in self.children.iter_mut() {
-      base := child.get_base();
-      rect := &mut base.rectangle;
-      rect.x = position.x + (MARGIN / 2);
-      rect.y = position.y + (MARGIN / 2);
-      rect.width = self.base.rectangle.width - MARGIN;
-      rect.height = (self.base.rectangle.height / self.children.length as f32) - MARGIN;
-      position.y += rect.height + MARGIN / 2;
-      child.draw();
-    }
-  }
-  fn get_children(*const self) -> *mut List!<dyn Widget> {
-    return &mut self.children;
-  }
-}
-
-impl ListBox {
-  fn add_child!<T>(*mut self, widget: *mut T) where T: Widget {
-    self.base.children.push(widget.get_base());
-    self.children.push(dynof(widget, Widget));
-  }
-}
-
 struct Node;
+struct Operation;
+
+struct Context {
+  nodes: List!<Node>,
+  operations: List!<Operation>,
+
+  node_list_ui: *mut ListBox,
+  freeform_area: *mut FreeformArea,
+  node_list_button_style: Style,
+  font: Font,
+}
+mut gContext: Context;
+
+fn nodespace_to_screen(node_value: Vector2) -> Vector2 {
+  rect := gContext.freeform_area.base.rectangle;
+  return Vector2.{
+    x: rect.x + node_value.x * rect.width,
+    y: rect.y + node_value.y * rect.height,
+  };
+}
+
+fn screen_to_nodespace(screen_pos: Vector2) -> Vector2 {
+  rect := gContext.freeform_area.base.rectangle;
+  return Vector2.{
+    x: (screen_pos.x - rect.x) / rect.width,
+    y: (screen_pos.y - rect.y) / rect.height,
+  };
+}
 
 enum Operator {
   Distance,
@@ -56,27 +50,9 @@ struct Node {
   shape: SolidShape,
   color: Color,
   value: Vector2,
+  
+  dragging: bool,
 }
-
-impl Deinit for Node {
-  fn deinit(*mut self) {
-    self.name.deinit();
-  }
-}
-struct Grid;
-struct Context {
-  nodes: List!<Node>,
-  operations: List!<Operation>,
-  node_list_ui: *mut ListBox,
-  grid: *mut Grid,
-  node_list_button_style: Style,
-  font: Font,
-}
-
-mut gContext: Context;
-
-fn nodespace_to_screen(grid_value: Vector2) -> Vector2;
-fn screen_to_nodespace(screen_pos: Vector2) -> Vector2;
 
 impl Operation {
   fn draw(*const self) {
@@ -96,7 +72,7 @@ impl Operation {
 
         DrawLineV(node_ss, operand_ss, WHITE.with_alpha(60));
 
-        buffer := std::asprintf("Distance(%s,%s)=%.2f", get_global_allocator(), self.node.name.data, operand.name.data, result);
+        buffer := std::asprintf("Distance(%s,%s)=%.4f", get_global_allocator(), self.node.name.data, operand.name.data, result);
         defer buffer.deinit();
 
         delta := operand_ss - node_ss;
@@ -149,7 +125,7 @@ impl Operation {
 
         // Draw annotation
         halfway := (a_ss + proj_point) / 2.0;
-        buffer := std::asprintf("Dot(%s,%s)=%.2f", get_global_allocator(), a.name.data, b.name.data, result);
+        buffer := std::asprintf("Dot(%s,%s)=%.4f", get_global_allocator(), a.name.data, b.name.data, result);
         defer buffer.deinit();
 
         delta := proj_point - a_ss;
@@ -178,94 +154,22 @@ impl Operation {
   }
 }
 
-
 impl Node {
   fn draw(*mut self) {
     position := nodespace_to_screen(self.value);
     self.shape.draw(position, self.color);
+
+
     draw_textf("% (%, %)", 
       (self.name, self.value.x, self.value.y), 
       position + Vector2::scalar(12),
       Style.{ 
         font_size: 12, 
         font: gContext.font, 
-      }
+      },
+      FormatOptions::current().with_digits_after_decimal(4),
     );
   }
-}
-
-struct Grid {
-  base: WidgetBase,
-  nodes: List!<Option!<Node>>,
-}
-
-impl Widget for Grid {
-  fn get_children(*const self) -> *mut List!<dyn Widget> {
-    return null;
-  }
-  fn draw(*mut self) {
-    // Draw the grid.
-    DrawRectangleLinesEx(self.base.rectangle, self.base.style.line_thickness, self.base.style.background);
-
-    if self.base.input_state & InputState::Hovered {
-      mouse := GetMousePosition();
-
-      nodespace_pos := screen_to_nodespace(mouse);
-
-      draw_textf("x=%, y=%", (nodespace_pos.x, nodespace_pos.y), mouse + Vector2::scalar(15), Style.{ font_size: 15, font: gContext.font, font_color_override: Some(WHITE.with_alpha(200))});
-
-      mut shape := SolidShape::Circle.{ radius: 5.0 };
-      shape.draw(mouse, WHITE.with_alpha(90));
-
-      if self.base.input_state & InputState::Pressed {
-
-        for node in gContext.nodes {
-          if node.value == nodespace_pos {
-            return;
-          }
-        }
-
-        #static mut name_idx := 65;
-
-        node := Node.{
-          shape: SolidShape::Circle.{ radius: 5.0 }
-          value: nodespace_pos,
-          color: WHITE,
-          name: std::asprintf("%c", get_global_allocator(), name_idx++),
-        };
-
-        gContext.nodes.push(node);
-
-        gContext.node_list_ui.add_child(new(Button!<Context>.{
-          base: .{
-            style: gContext.node_list_button_style,
-          }
-          on_clicked: fn (ctx: *mut Context) {
-            std::printf("we have %d nodes!\n", ctx.nodes.length);
-          }
-          label: Some(node.name),
-          user_arg: &mut gContext,
-        }));
-
-      }
-    }
-  }
-}
-
-fn nodespace_to_screen(node_value: Vector2) -> Vector2 {
-  rect := gContext.grid.base.rectangle;
-  return Vector2.{
-    x: rect.x + node_value.x * rect.width,
-    y: rect.y + node_value.y * rect.height,
-  };
-}
-
-fn screen_to_nodespace(screen_pos: Vector2) -> Vector2 {
-  rect := gContext.grid.base.rectangle;
-  return Vector2.{
-    x: (screen_pos.x - rect.x) / rect.width,
-    y: (screen_pos.y - rect.y) / rect.height,
-  };
 }
 
 fn main() {
@@ -284,7 +188,7 @@ fn main() {
     font: gContext.font,
   };
 
-  mut grid: Grid = .{
+  mut freeform_area: FreeformArea = .{
     base: .{
       model_rectangle: .{
         x: 0.15,
@@ -297,6 +201,59 @@ fn main() {
         font: gContext.font,
       }
     }
+    screen_to_nodespace: &mut screen_to_nodespace
+  };
+
+  freeform_area.base.on_hovered = fn(base: *mut WidgetBase, position: Vector2) {
+    for node in gContext.nodes.iter_mut() {
+      if node.dragging {
+        if !IsMouseButtonDown(MouseButton::MOUSE_BUTTON_RIGHT) {
+          node.dragging = false; 
+          return;
+        }
+        node.value = screen_to_nodespace(GetMousePosition());
+      }
+    }
+  };
+
+  freeform_area.base.on_pressed = fn(base: *mut WidgetBase, btn: s32) -> bool {
+    mouse_pos := GetMousePosition()
+    if btn == MouseButton::MOUSE_BUTTON_RIGHT {
+      for node in gContext.nodes.iter_mut() {
+        if CheckCollisionPointCircle(nodespace_to_screen(node.value), mouse_pos, 10.0) {
+          node.dragging = true;
+          break;
+        }
+      }
+
+    } else {
+      nodespace_pos := screen_to_nodespace(mouse_pos);
+      for node in gContext.nodes {
+        if node.value == nodespace_pos {
+          return false;
+        }
+      }
+      #static mut name_idx := 65;
+      node := Node.{
+        shape: SolidShape::Circle.{ radius: 5.0 }
+        value: nodespace_pos,
+        color: WHITE,
+        name: std::asprintf("%c", get_global_allocator(), name_idx++),
+      };
+      gContext.nodes.push(node);
+      gContext.node_list_ui.add_child(new(Button!<Context>.{
+        base: .{
+          style: gContext.node_list_button_style,
+        }
+        on_clicked: fn (ctx: *mut Context) {
+          std::printf("we have %d nodes!\n", ctx.nodes.length);
+        }
+        label: Some(node.name),
+        user_arg: &mut gContext,
+      }));
+    }
+
+    return true;
   };
 
   mut node_list: ListBox = .{
@@ -316,10 +273,10 @@ fn main() {
   };
 
   gContext.node_list_ui = &mut node_list;
-  gContext.grid = &mut grid;
+  gContext.freeform_area = &mut freeform_area;
 
   window.add_widget(&mut node_list);
-  window.add_widget(&mut grid);
+  window.add_widget(&mut freeform_area);
 
   while !WindowShouldClose() {
     BeginDrawing();
@@ -365,15 +322,24 @@ fn main() {
 
     fn handle_events(mouse_position: Vector2, widget: *mut dyn Widget) -> bool {
       base := widget.get_base();
-      mut handled := false;
+      mut hovered := false;
+      mut lmb_pressed := false;
+      mut rmb_pressed := false;
+
+      was_pressed := base.input_state & InputState::Pressed;
 
       base.input_state = InputState::None;
       if CheckCollisionPointRec(mouse_position, base.rectangle) {
         base.input_state = InputState::Hovered;
-        handled = true;
+        hovered = true;
 
         if IsMouseButtonPressed(MouseButton::MOUSE_BUTTON_LEFT) {
           base.input_state |= InputState::Pressed;
+          lmb_pressed = true;
+        }
+        if IsMouseButtonPressed(MouseButton::MOUSE_BUTTON_RIGHT) {
+          base.input_state |= InputState::Pressed;
+          rmb_pressed = true;
         }
       }
 
@@ -385,8 +351,26 @@ fn main() {
           }
         }
       }
+    
+      if base.input_state & InputState::Hovered && base.on_hovered {
+        base.on_hovered(widget.get_base(), mouse_position);
+      }
 
-      return handled;
+      if was_pressed && base.input_state & InputState::Pressed == 0 && base.on_released {
+        // ! THIS IS ALWAYS WRONG
+        base.on_released(widget.get_base(), 0);
+      }
+
+      if base.input_state & InputState::Pressed && base.on_pressed {
+        if lmb_pressed {
+          base.on_pressed(widget.get_base(), MouseButton::MOUSE_BUTTON_LEFT);
+        }
+        if rmb_pressed {
+          base.on_pressed(widget.get_base(), MouseButton::MOUSE_BUTTON_RIGHT);
+        }
+      }
+
+      return hovered || lmb_pressed || rmb_pressed;
     }
 
     { // Handle events.

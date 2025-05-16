@@ -61,9 +61,9 @@ struct WidgetBase {
   rectangle: Rectangle,
   model_rectangle: Rectangle,
 
-  on_pressed:   fn * (MouseButton) -> bool,
-  on_released:  fn * (MouseButton) -> bool,
-  on_hovered:   fn * (Vector2) -> bool,
+  on_pressed:   fn * (*mut WidgetBase, s32) -> bool,
+  on_released:  fn * (*mut WidgetBase, s32) -> bool,
+  on_hovered:   fn * (*mut WidgetBase, Vector2),
 
   children: List!<*mut WidgetBase>,
 };
@@ -302,7 +302,7 @@ impl!<Ctx> Window!<Ctx> {
   }
 }
 
-fn draw_textf!<Tuple>(fmt: str, tuple: Tuple, position: Vector2, style: Style, format_options: FormatOptions = *FormatOptions::current()) where Tuple: IsTuple {
+fn draw_textf!<Tuple>(fmt: str, tuple: Tuple, position: Vector2, style: Style, format_options: FormatOptions) where Tuple: IsTuple {
   text := format(fmt, tuple, format_options);
   defer {
     text.deinit();
@@ -417,7 +417,81 @@ impl!<UserArg> Widget for Button!<UserArg> {
     return null;
   }
 }
- 
+
+
+struct ListBox {
+  base: WidgetBase,
+  children: List!<dyn Widget>,
+}
+
+impl Widget for ListBox {
+  fn draw(*mut self) {
+    DrawRectangleRec(self.base.rectangle, self.base.style.background.with_alpha(20));
+    DrawRectangleLinesEx(self.base.rectangle, self.base.style.line_thickness, self.base.style.background);
+    const MARGIN := 10.0;
+    position: Vector2 = .{ x: self.base.rectangle.x, y: self.base.rectangle.y  };
+    for child in self.children.iter_mut() {
+      base := child.get_base();
+      rect := &mut base.rectangle;
+      rect.x = position.x + (MARGIN / 2);
+      rect.y = position.y + (MARGIN / 2);
+      rect.width = self.base.rectangle.width - MARGIN;
+      rect.height = (self.base.rectangle.height / self.children.length as f32) - MARGIN;
+      position.y += rect.height + MARGIN / 2;
+      child.draw();
+    }
+  }
+  fn get_children(*const self) -> *mut List!<dyn Widget> {
+    return &mut self.children;
+  }
+}
+
+impl ListBox {
+  fn add_child!<T>(*mut self, widget: *mut T) where T: Widget {
+    self.base.children.push(widget.get_base());
+    self.children.push(dynof(widget, Widget));
+  }
+}
+
+
+
+struct FreeformArea {
+  base: WidgetBase,
+  screen_to_nodespace: fn *(Vector2) -> Vector2,
+}
+
+impl Widget for FreeformArea {
+  fn get_children(*const self) -> *mut List!<dyn Widget> {
+    return null;
+  }
+  fn draw(*mut self) {
+    // Draw the freeform_area.
+    DrawRectangleLinesEx(self.base.rectangle, self.base.style.line_thickness, self.base.style.background);
+
+    if self.base.input_state & InputState::Hovered {
+      mouse := GetMousePosition();
+      mut shape := SolidShape::Circle.{ radius: 5.0 };
+      shape.draw(mouse, WHITE.with_alpha(90));
+      nodespace_pos := self.screen_to_nodespace(mouse);
+
+
+      if !IsMouseButtonDown(MouseButton::MOUSE_BUTTON_RIGHT) && !IsMouseButtonDown(MouseButton::MOUSE_BUTTON_LEFT) {
+        draw_textf("x=%, y=%", 
+          (nodespace_pos.x, nodespace_pos.y), 
+          mouse + Vector2::scalar(15), 
+          Style.{ 
+            font_size: 15, 
+            font: self.base.style.font, 
+            font_color_override: Some(WHITE.with_alpha(200))
+          },
+          *FormatOptions::current(),
+        );
+      }
+    }
+  }
+}
+
+
 // ! This stuff needs to be reimplemented
 #if 0 {
   // * Measure the width of a jiggly text of 'text' and 'style'
