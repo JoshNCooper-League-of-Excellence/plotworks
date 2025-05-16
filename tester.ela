@@ -1,0 +1,64 @@
+
+import ui::*;
+
+fn main() {
+  mut window := Window!<()>::new();
+
+  mut slider: Slider!<str, f32> = .{
+    base: .{
+      model_rectangle: .{
+        x: 0.0,
+        y: 0.0,
+        width: 0.30,
+        height: 0.10,
+      },
+      style: .{
+        font_color_override: Some(GREEN),
+      }
+    }
+    value: new(0.0),
+    min_value: 0.0,
+    max_value: 100.0,
+    text: Some("WAZZAP"),
+  }
+
+  mut check_button: CheckButton = .{
+    base: .{
+      model_rectangle: .{
+        x: 0.1,
+        y: 0.2,
+        width: 0.1,
+        height: 0.1,
+      },
+    }
+    text: Some(String::from("Hello, World!")), 
+    value: new(false),
+    allow_hold: true,
+  };
+
+  mut dropdown: DropDown!<str, ()> = .{
+    base: .{
+      model_rectangle: .{
+        x: 0.1,
+        y: 0.35,
+        width: 0.2,
+        height: 0.1,
+      },
+    },
+    text: Some("Choose one"),
+    options: List!<str>::init(.["Option 1", "Option 2", "Option 3"]),
+    selected_index: None(),
+    prefer_selected_option: false,
+    is_open: false,
+    on_option_selected: fn (selected: str, _user_arg: *mut ()) {
+      println(selected);
+    },
+  };
+
+  window.add_widget(&mut dropdown);
+
+  window
+    .add_widget(&mut slider)
+    .add_widget(&mut check_button)
+    .run();
+}
