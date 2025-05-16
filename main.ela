@@ -183,7 +183,6 @@ impl Node {
   fn draw(*mut self) {
     position := nodespace_to_screen(self.value);
     self.shape.draw(position, self.color);
-
     draw_textf("% (%, %)", 
       (self.name, self.value.x, self.value.y), 
       position + Vector2::scalar(12),

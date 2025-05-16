@@ -92,8 +92,9 @@ trait Widget {
 
   fn on_window_resized(*mut self, screen: Rectangle) {
     base := self.get_base()
-    base.rectangle.x = base.model_rectangle.x * screen.x;
-    base.rectangle.y = base.model_rectangle.y * screen.y;
+
+    base.rectangle.x = base.model_rectangle.x * screen.width;
+    base.rectangle.y = base.model_rectangle.y * screen.height;
     base.rectangle.width = base.model_rectangle.width * screen.width;
     base.rectangle.height = base.model_rectangle.height * screen.height;
 
