@@ -1,5 +1,5 @@
 
-#include "ui.ela"
+import rayui::*;
 
 import fmt::*;
 
@@ -225,15 +225,11 @@ impl Widget for FreeformArea {
               name: std::asprintf("%c", get_global_allocator(), name_idx++),
             };
             gContext.nodes.push(node);
-            gContext.node_list_ui.add_child(new(Button!<Context>.{
+            gContext.node_list_ui.add_child(new(TextField.{
               base: .{
                 style: gContext.node_list_button_style,
               }
-              on_clicked: fn (ctx: *mut Context) {
-                std::printf("we have %d nodes!\n", ctx.nodes.length);
-              }
               label: Some(node.name),
-              user_arg: &mut gContext,
             }));
           }
           PlacementMode::Operation: {

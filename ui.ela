@@ -116,19 +116,85 @@ choice Event {
   KeyPressed(KeyboardKey),
 }
 
-struct Button!<UserArg> {
+struct TextField {
   base:         WidgetBase,
   label:        Option!<String>,
-
-  // callback argument.
-  user_arg:     *mut UserArg,
-  on_clicked:   fn * (*mut UserArg),
-  
   in_edit_mode: bool = false,
   pre_edit_style: Style,
+}
 
+impl Widget for TextField {
+  fn draw(*mut self) {
+    mut position: Vector2 = .{
+      x: self.base.rectangle.x,
+      y: self.base.rectangle.y
+    };
 
+    mut size: Vector2 = .{
+      x: self.base.rectangle.width,
+      y: self.base.rectangle.height
+    };
 
+    DrawRectangleV(position, size, self.base.style.background);
+
+    if self.label is Option!<String>::Some(text) {
+      text_width: f32 = MeasureText(text.data, self.base.style.font_size);
+      text_height: f32 = self.base.style.font_size;
+      
+      if text_width > self.base.rectangle.width {
+        size.x = text_width;
+        position.x = self.base.rectangle.x - (text_width - self.base.rectangle.width) / 2;
+      }
+
+      text_position: Vector2 = .{
+        x: position.x + (size.x - text_width) / 2,
+        y: position.y + (size.y - text_height) / 2,
+      };
+
+      draw_text(text, text_position, self.base.style);
+    }
+
+    if !self.in_edit_mode && self.base.input_state & InputState::Hovered && IsKeyDown(KeyboardKey::KEY_F2) {
+      self.in_edit_mode = true;
+      self.pre_edit_style = self.base.style;
+      self.base.style.font_color_override = Some(WHITE);
+      self.base.style.background = YELLOW.with_alpha(25);
+      self.base.style.highlighted = CLEAR;
+    }
+
+    if self.in_edit_mode && IsKeyPressed(KeyboardKey::KEY_ENTER) {
+      self.in_edit_mode = false;
+      self.base.style = self.pre_edit_style;
+    }
+
+    if self.in_edit_mode {
+      if self.label.is_none() {
+        string: String = .{};
+        self.label = Some(string);
+      }
+
+      ch := GetCharPressed() as u8;
+      if IsKeyPressed(KeyboardKey::KEY_BACKSPACE) {
+        if self.label is Option!<String>::Some(&mut value) {
+          if !value.is_empty() {
+            value.pop();
+          }
+        }
+      } else if IsKeyPressed(KeyboardKey::KEY_SPACE) {
+        if self.label is Option!<String>::Some(&mut value) {
+          value.push(' ');
+        }
+      } else if ch.is_alpha() || ch.is_ascii_punctuation() {
+        if self.label is Option!<String>::Some(&mut value) {
+          value.push(ch);
+        }
+      }
+    }
+  }
+
+  fn get_children(*const self) -> *mut List!<dyn Widget> {
+    return null;
+  }
 }
 
 struct Slider!<TString, T> where TString: AsByteSlice {
@@ -177,6 +243,11 @@ struct DropDown!<TString, UserArg> where TString: AsByteSlice {
 struct Label!<TString> where TString: AsByteSlice {
   base: WidgetBase,
   text: TString,
+}
+
+struct ListBox {
+  base: WidgetBase,
+  children: List!<dyn Widget>,
 }
 
 enum RenderHookPriority {
@@ -334,93 +405,6 @@ fn draw_character(char: u8, position: Vector2, style: Style) {
   temp : u8[2] = .[char, '\0' as u8];
   slice := Slice!<u8>.{data: temp, length: 1};
   draw_text!<Slice!<u8>>(slice, position, style);
-}
-
-impl!<UserArg> Widget for Button!<UserArg> {
-  fn draw(*mut self) {
-    mut position: Vector2 = .{
-      x: self.base.rectangle.x,
-      y: self.base.rectangle.y
-    };
-
-    mut size: Vector2 = .{
-      x: self.base.rectangle.width,
-      y: self.base.rectangle.height
-    };
-
-    if self.base.input_state & InputState::Hovered {
-      DrawRectangleV(position, size, self.base.style.highlighted);
-      if self.base.input_state & InputState::Pressed {
-        self.on_clicked(self.user_arg);
-      }
-    } else {
-      DrawRectangleV(position, size, self.base.style.background);
-    }
-
-    if self.label is Option!<String>::Some(text) {
-      text_width: f32 = MeasureText(text.data, self.base.style.font_size);
-      text_height: f32 = self.base.style.font_size;
-      
-      if text_width > self.base.rectangle.width {
-        size.x = text_width;
-        position.x = self.base.rectangle.x - (text_width - self.base.rectangle.width) / 2;
-      }
-
-      text_position: Vector2 = .{
-        x: position.x + (size.x - text_width) / 2,
-        y: position.y + (size.y - text_height) / 2,
-      };
-
-      draw_text(text, text_position, self.base.style);
-    }
-
-    if !self.in_edit_mode && self.base.input_state & InputState::Hovered && IsKeyDown(KeyboardKey::KEY_F2) {
-      self.in_edit_mode = true;
-      self.pre_edit_style = self.base.style;
-      self.base.style.font_color_override = Some(WHITE);
-      self.base.style.background = YELLOW.with_alpha(25);
-      self.base.style.highlighted = CLEAR;
-    }
-
-    if self.in_edit_mode && IsKeyPressed(KeyboardKey::KEY_ENTER) {
-      self.in_edit_mode = false;
-      self.base.style = self.pre_edit_style;
-    }
-
-    if self.in_edit_mode {
-      if self.label.is_none() {
-        string: String = .{};
-        self.label = Some(string);
-      }
-
-      ch := GetCharPressed() as u8;
-
-      if IsKeyPressed(KeyboardKey::KEY_BACKSPACE) {
-        if self.label is Option!<String>::Some(&mut value) {
-          if !value.is_empty() {
-            value.pop();
-          }
-        }
-      } else if IsKeyPressed(KeyboardKey::KEY_SPACE) {
-        if self.label is Option!<String>::Some(&mut value) {
-          value.push(' ');
-        }
-      } else if ch.is_alpha() || ch.is_ascii_punctuation() {
-        if self.label is Option!<String>::Some(&mut value) {
-          value.push(ch);
-        }
-      }
-    }
-  }
-
-  fn get_children(*const self) -> *mut List!<dyn Widget> {
-    return null;
-  }
-}
-
-struct ListBox {
-  base: WidgetBase,
-  children: List!<dyn Widget>,
 }
 
 impl Widget for ListBox {
