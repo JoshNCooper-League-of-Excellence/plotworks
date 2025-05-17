@@ -1,10 +1,5 @@
-
 import rayui::*;
-
 import fmt::*;
-
-struct Node;
-struct Operation;
 
 fn screen_to_nodespace(screen_pos: Vector2) -> Vector2;
 fn nodespace_to_screen(node_value: Vector2) -> Vector2;
@@ -23,6 +18,8 @@ enum Operator {
   MAX,
 }
 
+struct Node;
+struct Operation;
 struct FreeformArea {
   base: WidgetBase,
   placement_mode: PlacementMode,
@@ -73,7 +70,6 @@ struct Node {
   shape: SolidShape,
   color: Color,
   value: Vector2,
-  
   dragging: bool,
 }
 
@@ -92,9 +88,14 @@ impl Widget for FreeformArea {
     if self.base.input_state & InputState::Hovered == 0 
       then return;
 
+    right := IsMouseButtonDown(MouseButton::MOUSE_BUTTON_RIGHT);
+    left := IsMouseButtonDown(MouseButton::MOUSE_BUTTON_LEFT);
+    left_shift := IsKeyDown(KeyboardKey::KEY_LEFT_SHIFT);
+    mouse := GetMousePosition();
+    mut mouse_wheel := GetMouseWheelMove();
+
     // Hover logic.
     {
-
       for node in gContext.nodes.iter_mut() {
         if node.dragging {
           if self.placement_mode != PlacementMode::Node || !IsMouseButtonDown(MouseButton::MOUSE_BUTTON_RIGHT) {
@@ -104,8 +105,6 @@ impl Widget for FreeformArea {
           node.value = screen_to_nodespace(GetMousePosition());
         }
       }
-
-      mut mouse_wheel := GetMouseWheelMove();
 
       if mouse_wheel != 0 {
         if mouse_wheel > 0 {
@@ -118,14 +117,13 @@ impl Widget for FreeformArea {
 
       switch self.placement_mode {
         PlacementMode::Node: {
-          if !IsMouseButtonDown(MouseButton::MOUSE_BUTTON_RIGHT) {
+          if !right {
             mouse := GetMousePosition();
             mut shape := SolidShape::Circle.{ radius: 5.0 };
             shape.draw(mouse, WHITE.with_alpha(90));
             nodespace_pos := screen_to_nodespace(mouse);
-
             draw_textf("x=%, y=%", 
-              (nodespace_pos.x * 100, nodespace_pos.y * 100), 
+              (nodespace_pos.x, nodespace_pos.y), 
               mouse + Vector2::scalar(15), 
               Style.{ 
                 font_size: 15, 
@@ -137,7 +135,6 @@ impl Widget for FreeformArea {
           }
         }
         PlacementMode::Operation: {
-          mouse := GetMousePosition();
           mut tuple: (Operator, String, String) = (self.selected_operator, .{}, .{});
           mut needs_freed: (bool, bool) = (false, false);
           if self.selected_left {
@@ -180,19 +177,18 @@ impl Widget for FreeformArea {
 
     // Click logic
     if self.base.input_state & InputState::Pressed {
-      mouse_pos := GetMousePosition()
-      if IsMouseButtonPressed(MouseButton::MOUSE_BUTTON_RIGHT) {
+      if right {
         switch self.placement_mode {
           PlacementMode::Node: {
             for node in gContext.nodes.iter_mut() {
-              if CheckCollisionPointCircle(nodespace_to_screen(node.value), mouse_pos, 10.0) {
+              if CheckCollisionPointCircle(nodespace_to_screen(node.value), mouse, 10.0) {
                 node.dragging = true;
                 break;
               }
             }
           }
           PlacementMode::Operation: {
-            if IsKeyDown(KeyboardKey::KEY_LEFT_SHIFT) {
+            if left_shift {
               self.selected_operator = (self.selected_operator + 1) % Operator::MAX;
             } else {
               if self.selected_left && self.selected_right {
@@ -208,10 +204,10 @@ impl Widget for FreeformArea {
             }
           }
         }
-      } else if IsMouseButtonDown(MouseButton::MOUSE_BUTTON_LEFT) {
+      } else if left {
         switch self.placement_mode {
           PlacementMode::Node: {
-            nodespace_pos := screen_to_nodespace(mouse_pos);
+            nodespace_pos := screen_to_nodespace(mouse);
             for node in gContext.nodes {
               if node.value == nodespace_pos {
                 return;
@@ -233,7 +229,7 @@ impl Widget for FreeformArea {
             }));
           }
           PlacementMode::Operation: {
-            if IsKeyDown(KeyboardKey::KEY_LEFT_SHIFT) {
+            if left_shift {
               mut found_node: *mut Node;
               mouse_pos := GetMousePosition();
               for node in gContext.nodes.iter_mut() {
@@ -263,6 +259,7 @@ impl Widget for FreeformArea {
 impl Operation {
   fn draw(*const self) {
     switch self.operator {
+      
       Operator::Distance: {
         if !self.right {
           return;
@@ -297,6 +294,7 @@ impl Operation {
           ColorLerp(GREEN, WHITE, 0.8)
         );
       }
+
       Operator::Dot: {
         if !self.right {
           return;
@@ -347,6 +345,7 @@ impl Operation {
           ColorLerp(BLUE, WHITE, 0.8)
         );
       }
+
       Operator::Normalize: {
         
       }
@@ -359,9 +358,8 @@ impl Node {
     position := nodespace_to_screen(self.value);
     self.shape.draw(position, self.color);
 
-
     draw_textf("% (%, %)", 
-      (self.name, self.value.x * 100, self.value.y * 100), 
+      (self.name, self.value.x, self.value.y), 
       position + Vector2::scalar(12),
       Style.{ 
         font_size: 12, 
@@ -373,8 +371,10 @@ impl Node {
 }
 
 fn main() {
-  SetConfigFlags(ConfigFlags::FLAG_WINDOW_RESIZABLE);
-  mut window := Window!<()>::new();
+  mut allocator: Tracking_Allocator;
+  set_global_allocator(dynof(&mut allocator, Allocator));
+
+  mut window := Window!<()>::new("plotworks", ConfigFlags::FLAG_WINDOW_RESIZABLE);
   gContext.font =  LoadFont("assets/FiraCode-Bold.ttf"c);
 
   gContext.node_list_button_style = .{
@@ -422,104 +422,44 @@ fn main() {
   gContext.node_list_ui = &mut node_list;
   gContext.freeform_area = &mut freeform_area;
 
-  window.add_widget(&mut node_list);
-  window.add_widget(&mut freeform_area);
-
-  while !WindowShouldClose() {
-    BeginDrawing();
-    ClearBackground(window.background_color);
-
-    if IsWindowResized() {
-      window.on_resized(.{
-        x: 0, y: 0,
-        width: GetScreenWidth(),
-        height: GetScreenHeight(),
-      });
-    }
-    
+  fn post_render_hook(_: *mut ()) {
     if IsKeyPressed(KeyboardKey::KEY_C) {
-      gContext.operations.clear();
-      gContext.nodes.clear();
-      gContext.node_list_ui.get_children().clear();
-    }
-
-    window.widgets.sort(fn(widget: *const dyn Widget) -> u32 {
-      return widget.get_base().layer;
-    });
-
-    fn handle_events(mouse_position: Vector2, widget: *mut dyn Widget) -> bool {
-      base := widget.get_base();
-      mut hovered := false;
-      mut lmb_pressed := false;
-      mut rmb_pressed := false;
-
-      was_pressed := base.input_state & InputState::Pressed;
-
-      base.input_state = InputState::None;
-      if CheckCollisionPointRec(mouse_position, base.rectangle) {
-        base.input_state = InputState::Hovered;
-        hovered = true;
-
-        if IsMouseButtonPressed(MouseButton::MOUSE_BUTTON_LEFT) {
-          base.input_state |= InputState::Pressed;
-          lmb_pressed = true;
-        }
-        if IsMouseButtonPressed(MouseButton::MOUSE_BUTTON_RIGHT) {
-          base.input_state |= InputState::Pressed;
-          rmb_pressed = true;
-        }
+      for node in gContext.nodes {
+        node.name.deinit();
       }
+      gContext.operations.deinit();
+      gContext.nodes.deinit();
 
-      children := widget.get_children();
-      if children {
-        for child in children.iter_mut() {
-          if handle_events(mouse_position, child) {
-            base.input_state = InputState::None;
-          }
-        }
+      for child in gContext.node_list_ui.get_children().iter() {
+        std::c::free(child.instance);
       }
-    
-      if base.input_state & InputState::Hovered && base.on_hovered {
-        base.on_hovered(widget.get_base(), mouse_position);
-      }
-
-      if was_pressed && base.input_state & InputState::Pressed == 0 && base.on_released {
-        // ! THIS IS ALWAYS WRONG
-        base.on_released(widget.get_base(), 0);
-      }
-
-      if base.input_state & InputState::Pressed && base.on_pressed {
-        if lmb_pressed {
-          base.on_pressed(widget.get_base(), MouseButton::MOUSE_BUTTON_LEFT);
-        }
-        if rmb_pressed {
-          base.on_pressed(widget.get_base(), MouseButton::MOUSE_BUTTON_RIGHT);
-        }
-      }
-
-      return hovered || lmb_pressed || rmb_pressed;
-    }
-
-    { // Handle events.
-      mouse_position := GetMousePosition();
-      for widget in window.widgets.iter_mut() {
-        handle_events(mouse_position, widget);
-      }
-    }
-
-    for widget in window.widgets.iter_mut() {
-      widget.draw();
+      gContext.node_list_ui.get_children().deinit();
     }
 
     for node in gContext.nodes.iter_mut() {
       node.draw();
     }
-
     for operation in gContext.operations.iter_mut() {
       operation.draw();
     }
-
-    EndDrawing();
   }
 
+  window.add_widget(&mut node_list)
+        .add_widget(&mut freeform_area)
+        .add_render_hook(&mut post_render_hook, RenderHookPriority::PostWidgetRender)
+        .run();
+
+  {
+    for node in gContext.nodes {
+      node.name.deinit();
+    }
+    gContext.operations.deinit();
+    gContext.nodes.deinit();
+    for child in gContext.node_list_ui.get_children().iter() {
+      std::c::free(child.instance);
+    }
+    gContext.node_list_ui.children.deinit();
+  }
+
+  std::printf("\033[1;3;31mFailed to free \033[3;3;33m%d\033[1;3;31m allocations!\n\033[0m", allocator.length);
 }
