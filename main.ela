@@ -226,7 +226,9 @@ impl FreeformArea {
         return;
       }
 
-      self.selected_operands.push(found_node);
+      if self.selected_operands.length < self.selected_operator.required_operands_count() {
+        self.selected_operands.push(found_node);
+      }
     }
   }
 }
