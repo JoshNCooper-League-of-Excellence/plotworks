@@ -72,7 +72,7 @@ struct Operation {
 }
 
 struct Node {
-  name: String,
+  name: *mut String,
   shape: SolidShape,
   color: Color,
   value: Vector2,
@@ -89,7 +89,7 @@ impl Format for List!<*mut Node> {
     }
 
     for i, val in self.enumerate() {
-      formatter.writer.append(val.name);
+      formatter.writer.append(*val.name);
       if formatter.options.indented && i != self.length - 1 {
         formatter.writer.append(",\n  ");
       } else if i != self.length - 1 {
@@ -162,14 +162,14 @@ impl FreeformArea {
           shape: SolidShape::Circle.{ radius: 5.0 }
           value: nodespace_pos,
           color: WHITE,
-          name: std::asprintf("%c", get_global_allocator(), name_idx++),
+          name: new(std::asprintf("%c", get_global_allocator(), name_idx++)),
         };
         gContext.nodes.push(node);
         gContext.node_list_ui.add_child(new(TextField.{
           base: .{
             style: gContext.node_list_button_style,
           }
-          label: Some(node.name),
+          text: node.name,
         }));
       }
     }
@@ -366,7 +366,7 @@ impl Node {
     self.shape.draw(position, self.color);
 
     draw_textf("% (%, %)", 
-      (self.name, self.value.x, self.value.y), 
+      (*self.name, self.value.x, self.value.y), 
       position + Vector2::scalar(12),
       Style.{ 
         font_size: 12, 
