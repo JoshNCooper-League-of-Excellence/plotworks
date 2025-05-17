@@ -18,14 +18,23 @@ enum Operator {
   MAX,
 }
 
+impl Operator {
+  fn required_operands_count(self) -> u8 {
+    switch self {
+      Operator::Distance => 2,
+      Operator::Dot => 2,
+      Operator::Normalize => 1,
+    }
+    return 0;
+  }
+}
+
 struct Node;
 struct Operation;
 struct FreeformArea {
   base: WidgetBase,
   placement_mode: PlacementMode,
-
-  selected_left: *mut Node,
-  selected_right: *mut Node,
+  selected_operands: List!<*mut Node>,
   selected_operator: Operator,
 }
 
@@ -59,10 +68,7 @@ fn screen_to_nodespace(screen_pos: Vector2) -> Vector2 {
 
 struct Operation {
   operator: Operator,
-  // TODO: add a way to do arbitrary num of operands.
-  // Probably a choice type.
-  left: *mut Node,
-  right: *mut Node,
+  operands: List!<*mut Node>,
 }
 
 struct Node {
@@ -72,8 +78,34 @@ struct Node {
   value: Vector2,
   dragging: bool,
 }
-impl FreeformArea {
 
+impl Format for List!<*mut Node> {
+  fn format(*const self, formatter: *mut Formatter) {
+    element_type := typeof(Node);
+    formatter.writer.append("[ ");
+
+    if formatter.options.indented {
+      formatter.writer.append("\n  ");
+    }
+
+    for i, val in self.enumerate() {
+      formatter.writer.append(val.name);
+      if formatter.options.indented && i != self.length - 1 {
+        formatter.writer.append(",\n  ");
+      } else if i != self.length - 1 {
+        formatter.writer.append(", ");
+      }
+    }
+
+    if formatter.options.indented {
+      formatter.writer.append("\n]");
+    } else {
+      formatter.writer.append("]");
+    }
+  }
+}
+
+impl FreeformArea {
   fn draw_node_mode(*mut self) {
     right := IsMouseButtonDown(MouseButton::MOUSE_BUTTON_RIGHT);
     left := IsMouseButtonDown(MouseButton::MOUSE_BUTTON_LEFT);
@@ -149,58 +181,35 @@ impl FreeformArea {
     mouse := GetMousePosition();
     
     { // Draw current in-progress build of operation
-      mut tuple: (Operator, String, String) = (self.selected_operator, .{}, .{});
-      mut needs_freed: (bool, bool) = (false, false);
-      if self.selected_left {
-        tuple.1 = self.selected_left.name;
-      } else {
-        tuple.1 = String::from("null");
-        needs_freed.0 = true;
-      }
 
-      if self.selected_right {
-        tuple.2 = self.selected_right.name;
-      } else {
-        tuple.2 = String::from("null");
-        needs_freed.1 = true;
-      }
-
-      defer {
-        a, b := needs_freed;
-        if a {
-          tuple.1.deinit();
-        }
-        if b {
-          tuple.2.deinit();
-        }
-      }
-
-      draw_textf("%(%,%)",
-        tuple,
+      mut options := *FormatOptions::current();
+      options.enum_parent_name = false;
+      options.quote_strings = false;
+      draw_textf("%(%)",
+        (self.selected_operator, self.selected_operands),
         mouse + Vector2::scalar(15), 
         Style.{ 
           font_size: 15, 
           font: self.base.style.font, 
           font_color_override: Some(WHITE.with_alpha(200))
         },
-        *FormatOptions::current(),
+        options,
       );
     }
 
-
-    if self.base.input_state & InputState::Pressed == 0 then return;
+    if self.base.input_state & InputState::Pressed == 0 {
+      return;
+    }
 
     if right && left_shift { // Swap selected operator
       self.selected_operator = (self.selected_operator + 1) % Operator::MAX;
     } else if right { // push new operation
-      if self.selected_left && self.selected_right {
+      if self.selected_operands.length == self.selected_operator.required_operands_count() {
         gContext.operations.push(.{
-          left: self.selected_left,
-          right: self.selected_right,
           operator: self.selected_operator,
+          operands: self.selected_operands,
         });
-        self.selected_left = null;
-        self.selected_right = null;
+        self.selected_operands = .{};
         self.selected_operator = 0;
       }
     } else if left && left_shift {
@@ -217,14 +226,11 @@ impl FreeformArea {
         return;
       }
 
-      if !self.selected_left {
-        self.selected_left = found_node;
-      } else if !self.selected_right {
-        self.selected_right = found_node;
-      }
+      self.selected_operands.push(found_node);
     }
   }
 }
+
 impl Widget for FreeformArea {
   fn get_children(*const self) -> *mut List!<dyn Widget> {
     return null;
@@ -240,10 +246,6 @@ impl Widget for FreeformArea {
     if self.base.input_state & InputState::Hovered == 0 
       then return;
 
-    right := IsMouseButtonDown(MouseButton::MOUSE_BUTTON_RIGHT);
-    left := IsMouseButtonDown(MouseButton::MOUSE_BUTTON_LEFT);
-    left_shift := IsKeyDown(KeyboardKey::KEY_LEFT_SHIFT);
-    mouse := GetMousePosition();
     mut mouse_wheel := GetMouseWheelMove();
 
     // Switch placement mode. To be replaced.
@@ -265,23 +267,21 @@ impl Widget for FreeformArea {
 }
 
 impl Operation {
-  fn draw(*const self) {
+  fn draw(*mut self) {
     switch self.operator {
-      
       Operator::Distance: {
-        if !self.right {
-          return;
-        }
+        left := self.operands[0];
+        right := self.operands[1];
 
-        left_ss := nodespace_to_screen(self.left.value);
-        right_ss := nodespace_to_screen(self.right.value);
+        left_ss := nodespace_to_screen(left.value);
+        right_ss := nodespace_to_screen(right.value);
 
-        result := self.left.value.distance(self.right.value);
+        result := left.value.distance(right.value);
         halfway := (left_ss + right_ss) / 2.0;
 
         DrawLineV(left_ss, right_ss, WHITE.with_alpha(60));
 
-        buffer := std::asprintf("Distance(%s,%s)=%.4f", get_global_allocator(), self.left.name.data, self.right.name.data, result);
+        buffer := std::asprintf("Distance(%s,%s)=%.4f", get_global_allocator(), left.name.data, right.name.data, result);
         defer buffer.deinit();
 
         delta := right_ss - left_ss;
@@ -304,10 +304,7 @@ impl Operation {
       }
 
       Operator::Dot: {
-        if !self.right {
-          return;
-        }
-        a, b := (self.left, self.right);
+        a, b := (self.operands[0], self.operands[1]);
 
         result := a.value.dot(b.value);
 
