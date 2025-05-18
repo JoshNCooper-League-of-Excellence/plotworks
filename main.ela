@@ -79,28 +79,17 @@ struct Node {
   dragging: bool,
 }
 
+// Formatter for drawing argument lists neater.
 impl Format for List!<*mut Node> {
   fn format(*const self, formatter: *mut Formatter) {
     element_type := typeof(Node);
-    formatter.writer.append("[ ");
-
-    if formatter.options.indented {
-      formatter.writer.append("\n  ");
-    }
-
     for i, val in self.enumerate() {
       formatter.writer.append(*val.name);
       if formatter.options.indented && i != self.length - 1 {
         formatter.writer.append(",\n  ");
       } else if i != self.length - 1 {
-        formatter.writer.append(", ");
+        formatter.writer.append(",");
       }
-    }
-
-    if formatter.options.indented {
-      formatter.writer.append("\n]");
-    } else {
-      formatter.writer.append("]");
     }
   }
 }
@@ -459,6 +448,7 @@ fn main() {
   {
     for node in gContext.nodes {
       node.name.deinit();
+      std::c::free(node.name);
     }
     gContext.operations.deinit();
     gContext.nodes.deinit();
