@@ -43,6 +43,7 @@ struct Context {
   operations: List!<Operation>,
 
   node_list_ui: *mut ListBox,
+  toolbar: *mut ListBox,
   freeform_area: *mut FreeformArea,
   node_list_button_style: Style,
   font: Font,
@@ -77,6 +78,12 @@ struct Node {
   color: Color,
   value: Vector2,
   dragging: bool,
+}
+
+impl Deinit for Node {
+  fn deinit(*mut self) {
+    get_global_allocator().free(self.name);
+  }
 }
 
 // Formatter for drawing argument lists neater.
@@ -153,6 +160,7 @@ impl FreeformArea {
           color: WHITE,
           name: new(std::asprintf("%c", get_global_allocator(), name_idx++)),
         };
+
         gContext.nodes.push(node);
         gContext.node_list_ui.add_child(new(TextField.{
           base: .{
@@ -254,6 +262,12 @@ impl Widget for FreeformArea {
     } else if self.placement_mode == PlacementMode::Operation {
       self.draw_operation_mode();
     }
+  }
+}
+
+impl Deinit for Operation {
+  fn deinit(*mut self) {
+    self.operands.deinit();
   }
 }
 
@@ -415,21 +429,84 @@ fn main() {
     }
   };
 
+  mut toolbar: ListBox = .{
+    base: .{
+      model_rectangle: .{
+        x: 0.0125,
+        y: 0.007,
+        width: 0.945,
+        height: 0.05,
+      },
+      style: .{
+        font: gContext.font,
+        background: GRAY,
+        foreground: WHITE,
+        margin: 3.0,
+      },
+    }
+    layout_style: LayoutStyle::Horizontal(),
+  };
+
+  enum View {
+    Plot,
+    Graph,
+  }
+
+  struct ViewButtonState {
+    button: *mut Button!<str, ViewButtonState>,
+    view: View,
+  }
+
+  mut button: Button!<str, ViewButtonState> = .{
+    on_clicked: fn(arg: *mut void) {
+      state: *mut ViewButtonState = arg;
+      state.view = !state.view;
+
+      if state.view == View::Plot {
+        state.button.label = Some("Graph");
+      } else {
+        state.button.label = Some("Plot");
+      }
+
+    },
+    label: Some("Graph"),
+  };
+
+  mut vbs := ViewButtonState.{
+    button: &mut button,
+    view: View::Plot,
+  };
+
+  button.user_arg = &mut vbs;
+  toolbar.add_child(&mut button);
+
   gContext.node_list_ui = &mut node_list;
   gContext.freeform_area = &mut freeform_area;
+  gContext.toolbar = &mut toolbar;
+
+  fn clear_state() {
+    for node in gContext.nodes {
+      node.deinit();
+    }
+    gContext.nodes.deinit();
+
+    for operation in gContext.operations {
+      operation.deinit();
+    }
+    gContext.operations.deinit();
+
+    for child in gContext.node_list_ui.get_children().iter() {
+      get_global_allocator().free(child.instance);
+    }
+    gContext.node_list_ui.children.deinit();
+
+    gContext.toolbar.children.deinit();
+  }
 
   fn post_render_hook(_: *mut ()) {
     if IsKeyPressed(KeyboardKey::KEY_C) {
-      for node in gContext.nodes {
-        node.name.deinit();
-      }
-      gContext.operations.deinit();
-      gContext.nodes.deinit();
-
-      for child in gContext.node_list_ui.get_children().iter() {
-        std::c::free(child.instance);
-      }
-      gContext.node_list_ui.get_children().deinit();
+      clear_state();
+      return;
     }
 
     for node in gContext.nodes.iter_mut() {
@@ -442,21 +519,12 @@ fn main() {
 
   window.add_widget(&mut node_list)
         .add_widget(&mut freeform_area)
+        .add_widget(&mut toolbar)
         .add_render_hook(&mut post_render_hook, RenderHookPriority::PostWidgetRender)
         .run();
 
-  {
-    for node in gContext.nodes {
-      node.name.deinit();
-      std::c::free(node.name);
-    }
-    gContext.operations.deinit();
-    gContext.nodes.deinit();
-    for child in gContext.node_list_ui.get_children().iter() {
-      std::c::free(child.instance);
-    }
-    gContext.node_list_ui.children.deinit();
-  }
+  // cleanup;
+  clear_state();
 
   std::printf("\033[1;3;31mFailed to free \033[3;3;33m%d\033[1;3;31m allocations!\n\033[0m", allocator.length);
 }
