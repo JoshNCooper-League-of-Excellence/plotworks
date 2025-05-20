@@ -1,6 +1,8 @@
 import rayui::*;
 import fmt::*;
 
+struct Node;
+struct Operation;
 fn screen_to_nodespace(screen_pos: Vector2) -> Vector2;
 fn nodespace_to_screen(node_value: Vector2) -> Vector2;
 
@@ -29,8 +31,6 @@ impl Operator {
   }
 }
 
-struct Node;
-struct Operation;
 struct FreeformArea {
   base: WidgetBase,
   placement_mode: PlacementMode,
@@ -50,7 +50,6 @@ struct Context {
 }
 
 mut gContext: Context;
-
 fn nodespace_to_screen(node_value: Vector2) -> Vector2 {
   rect := gContext.freeform_area.base.rectangle;
   return Vector2.{
@@ -80,12 +79,6 @@ struct Node {
   dragging: bool,
 }
 
-impl Deinit for Node {
-  fn deinit(*mut self) {
-    get_global_allocator().free(self.name);
-  }
-}
-
 // Formatter for drawing argument lists neater.
 impl Format for List!<*mut Node> {
   fn format(*const self, formatter: *mut Formatter) {
@@ -98,6 +91,12 @@ impl Format for List!<*mut Node> {
         formatter.writer.append(",");
       }
     }
+  }
+}
+
+impl Deinit for Node {
+  fn deinit(*mut self) {
+    get_global_allocator().free(self.name);
   }
 }
 
@@ -231,7 +230,28 @@ impl FreeformArea {
 }
 
 /* 
-! Somehow if we don't do this, it passes the type system.
+ !! COMPILER BUG::
+
+  ! When I don't impl Deinit (for which Widget has a trait bounds for)
+  ! I get this error:
+
+  ! The trait bounds somehow isn't applied.
+
+  Internal compiler error: couldn't find method deinit in dynof(FreeformArea)
+        at: /home/josh_arch/source/ela/ela-stdlib/rayui/lib.ela:940:34
+    CloseWindow();
+  }
+
+  fn add_widget!<T>(*mut self, t: *mut T) -> #self where T: Widget  {
+    trait_obj := dynof(t, Widget);
+                                  ^^^
+    trait_obj.on_window_resized(.{
+      x: 0, y: 0,
+      width: GetScreenWidth(),
+      height: GetScreenHeight(),
+    });
+    self.widgets.push(trait_obj);
+
 */
 impl Deinit for FreeformArea {
   fn deinit(*mut self) {

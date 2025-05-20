@@ -1,0 +1,28 @@
+
+struct Edge;
+
+/* 
+  A descriptor for how the node is presented.
+  Property names, types,
+  Inputs,
+  Outputs, 
+  Etc.
+*/
+struct NodeMetadata {
+
+}
+
+/* A graph node. */
+struct Node {
+  edges: List!<Edge>,
+}
+
+/* A connection between two nodes. */
+struct Edge {
+  source: *mut Node,
+  target: *mut Node,
+}
+
+struct Graph {
+  nodes: List!<Node>,
+}
