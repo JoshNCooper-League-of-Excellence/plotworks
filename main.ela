@@ -230,6 +230,18 @@ impl FreeformArea {
   }
 }
 
+/* 
+! Somehow if we don't do this, it passes the type system.
+*/
+impl Deinit for FreeformArea {
+  fn deinit(*mut self) {
+    for operand in self.selected_operands {
+      operand.deinit();
+    }
+    self.selected_operands.deinit();
+  }
+}
+
 impl Widget for FreeformArea {
   fn get_children(*const self) -> *mut List!<dyn Widget> {
     return null;
