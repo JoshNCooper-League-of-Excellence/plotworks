@@ -1,6 +1,8 @@
 import rayui::*;
 import fmt::*;
 
+import node_graph;
+
 struct Node;
 struct Operation;
 fn screen_to_nodespace(screen_pos: Vector2) -> Vector2;
@@ -37,6 +39,54 @@ struct FreeformArea {
   selected_operator: Operator,
 }
 
+import map;
+
+struct NodeWidget {
+  base: WidgetBase,
+  node: *node_graph::Node,
+}
+
+struct Plotter {
+  base: WidgetBase,
+  graph: node_graph::Graph,
+}
+
+impl Destroy for Plotter {
+  fn destroy(*mut self, recursive: bool = true) {
+  }
+}
+
+impl Destroy for NodeWidget {
+  fn destroy(*mut self, recursive: bool = true) {
+    
+  }
+}
+
+impl Widget for Plotter {
+  fn get_children(*const self) -> *mut List!<dyn Widget> => null;
+  fn draw(*mut self) {
+    DrawRectangleRec(
+      self.base.rectangle,
+      self.base.style.background
+    );
+
+    DrawRectangleLinesEx(
+      self.base.rectangle, 
+      self.base.style.line_thickness, 
+      self.base.style.background.with_alpha(self.base.style.background.a)
+    );
+
+    fn draw_node(pos: Vector2, node: *node_graph::Node) {
+
+    }
+
+    mut pos: Vector2 = self.base.rectangle.position();
+    for id, &node in self.graph.nodes.iter_mut() {
+      draw_node(pos, node);
+    }
+  }
+}
+
 struct Context {
   nodes: List!<Node>,
   operations: List!<Operation>,
@@ -44,6 +94,7 @@ struct Context {
   node_list_ui: *mut ListBox,
   toolbar: *mut ListBox,
   freeform_area: *mut FreeformArea,
+  plotter: *mut Plotter,
   node_list_button_style: Style,
   font: Font,
 }
@@ -437,6 +488,36 @@ fn main() {
     }
   };
 
+  mut plotter: Plotter = .{
+    base: .{
+      model_rectangle: .{
+        x: 0.15,
+        y: 0.06666667,
+        width: 0.80625,
+        height: 0.8666667,
+      },
+      style: .{
+        background: GRAY,
+        font: gContext.font,
+      }
+      is_active: false,
+    }
+  };
+
+  // mockup plotter.
+  {
+    mut node_a: node_graph::Node;
+    mut node_b: node_graph::Node;
+
+    plotter.graph.add_node(node_a);
+    plotter.graph.add_node(node_b);
+
+    src := node_a.add_output("product", node_graph::TypeConstraint::Any);
+    dest := node_b.add_input("recieve", node_graph::TypeConstraint::Any);
+    plotter.graph.add_edge(node_graph::Edge::new(&node_a, src, &node_b, dest));
+  }
+
+
   mut node_list: ListBox = .{
     base: .{
       model_rectangle: .{
@@ -488,16 +569,22 @@ fn main() {
 
       if state.view == View::Plot {
         gContext.freeform_area.base.is_active = true;
+        gContext.plotter.base.is_active = false;
+
         state.button.label = Some("Graph");
+
         for node in gContext.nodes.iter_mut() {
           node.set_active(true);
         }
       } else {
+        gContext.freeform_area.base.is_active = false;
+        gContext.plotter.base.is_active = true;
+
+        state.button.label = Some("Plot");
+
         for node in gContext.nodes.iter_mut() {
           node.set_active(false);
         }
-        gContext.freeform_area.base.is_active = false;
-        state.button.label = Some("Plot");
       }
 
     },
@@ -512,6 +599,8 @@ fn main() {
   button.user_arg = &mut vbs;
   toolbar.add_child(&mut button);
 
+
+  gContext.plotter = &mut plotter;
   gContext.node_list_ui = &mut node_list;
   gContext.freeform_area = &mut freeform_area;
   gContext.toolbar = &mut toolbar;
@@ -548,6 +637,7 @@ fn main() {
   }
 
   window.add_widget(&mut node_list)
+        .add_widget(&mut plotter)
         .add_widget(&mut freeform_area)
         .add_widget(&mut toolbar)
         .add_render_hook(&mut post_render_hook, RenderHookPriority::PostWidgetRender)
