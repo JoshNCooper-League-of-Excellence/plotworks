@@ -2,14 +2,11 @@ import map;
 import rayui;
 import raylib;
 import json::*;
-import fmt::*;
 import fs;
-
 
 /* 
   If you add to 'Data' you must update TypeConstraint's variants
   and update the impl for get_type_constraint() for Data.
-  
   so that nodes can accurately represent your type,
 */
 choice Data {
@@ -91,163 +88,163 @@ struct Graph {
   nodes: map::Map!<u32, Node>,
   edges: List!<Edge>,
 }
-
-#region JSON FORMATTERS {
-  impl Serializable for Data {
-    fn serialize(*const self) -> JsonResult {
-      value := JsonValue::new();
-      value.type = JsonValueType::Object;
-      switch is *self {
-        Data::Int(v): {
-          value.object.insert(String::from("discriminant"), json::serialize(0).unwrap());
-          value.object.insert(String::from("payload"), json::serialize(v).unwrap());
+/* 
+  #region JSON FORMATTERS {
+    impl Serializable for Data {
+      fn serialize(*const self) -> JsonResult {
+        value := JsonValue::new();
+        value.type = JsonValueType::Object;
+        switch is *self {
+          Data::Int(v): {
+            value.object.insert(String::from("discriminant"), json::serialize(0).unwrap());
+            value.object.insert(String::from("payload"), json::serialize(v).unwrap());
+          }
+          Data::Float(v): {
+            value.object.insert(String::from("discriminant"), json::serialize(1).unwrap());
+            value.object.insert(String::from("payload"), json::serialize(v).unwrap());
+          }
+          Data::Bool(v): {
+            value.object.insert(String::from("discriminant"), json::serialize(2).unwrap());
+            value.object.insert(String::from("payload"), json::serialize(v).unwrap());
+          }
+          Data::String(v): {
+            value.object.insert(String::from("discriminant"), json::serialize(3).unwrap());
+            value.object.insert(String::from("payload"), json::serialize(v).unwrap());
+          }
+          Data::Vector2(v): {
+            value.object.insert(String::from("discriminant"), json::serialize(4).unwrap());
+            value.object.insert(String::from("payload"), json::serialize(v).unwrap());
+          }
         }
-        Data::Float(v): {
-          value.object.insert(String::from("discriminant"), json::serialize(1).unwrap());
-          value.object.insert(String::from("payload"), json::serialize(v).unwrap());
-        }
-        Data::Bool(v): {
-          value.object.insert(String::from("discriminant"), json::serialize(2).unwrap());
-          value.object.insert(String::from("payload"), json::serialize(v).unwrap());
-        }
-        Data::String(v): {
-          value.object.insert(String::from("discriminant"), json::serialize(3).unwrap());
-          value.object.insert(String::from("payload"), json::serialize(v).unwrap());
-        }
-        Data::Vector2(v): {
-          value.object.insert(String::from("discriminant"), json::serialize(4).unwrap());
-          value.object.insert(String::from("payload"), json::serialize(v).unwrap());
-        }
+        return JsonResult::Ok(value);
       }
-      return JsonResult::Ok(value);
+      fn deserialize(*mut self, object: *mut JsonValue) -> Option!<String> {
+
+        fn error(err: str) -> Option!<String> {
+          return Some(err.to_string(get_global_allocator()));
+        }
+
+        fn expect(err: String) {
+          std::printf("Failed to deserialize 'Data' for 'NodeGraph'.\n Error: %s\n", err.data);
+          panic("aborting...");
+        }
+
+        if object.type != JsonValueType::Object {
+          return error("Expected object for Data");
+        }
+
+        discrim_key := String::from("discriminant");
+        payload_key := String::from("payload");
+
+        discrim_val := object.object.get(discrim_key);
+        payload_val := object.object.get(payload_key);
+
+        if discrim_val.is_none() || payload_val.is_none() {
+          return error("Missing discriminant or payload");
+        }
+
+        mut discrim: s64;
+        json::deserialize!<s64>(discrim_val.unwrap(), &mut discrim).unwrap();
+        
+        switch discrim {
+          0: {
+            mut value: s64;
+            json::deserialize(payload_val.unwrap(), &mut value).unwrap();
+            *self = Data::Int(value);
+          }
+          1: {
+            mut value: f64;
+            json::deserialize(payload_val.unwrap(), &mut value).unwrap();
+            *self = Data::Float(value);
+          }
+          2: {
+            mut value: bool;
+            json::deserialize(payload_val.unwrap(), &mut value).unwrap();
+            *self = Data::Bool(value);
+          }
+          3: {
+            mut value: String;
+            json::deserialize(payload_val.unwrap(), &mut value).unwrap();
+            *self = Data::String(value);
+          }
+          4: {
+            mut value: raylib::Vector2;
+            json::deserialize(payload_val.unwrap(), &mut value).unwrap();
+            *self = Data::Vector2(value);
+          }
+          else: {
+            return error("Unknown discriminant");
+          }
+        }
+        return None();
+      }
     }
-    fn deserialize(*mut self, object: *mut JsonValue) -> Option!<String> {
 
-      fn error(err: str) -> Option!<String> {
-        return Some(err.to_string(get_global_allocator()));
+    impl Serializable for Map!<u32, Port> {
+      fn serialize(*const self) -> JsonResult {
+        mut value := JsonValue::new();
+        value.type = JsonValueType::Object;
+        for key, v in *self {
+          result := serialize!<Port>(v);
+          if result.is_err() {
+            return result;
+          }
+          value.object.insert(fmt::to_string(key, FormatOptions.{}, get_global_allocator()), result.unwrap());
+        }
+        return JsonResult::Ok(value);
       }
+      fn deserialize(*mut self, object: *mut JsonValue) -> Option!<String> {
+        println(object.type as JsonValueType);
 
-      fn expect(err: String) {
-        std::printf("Failed to deserialize 'Data' for 'NodeGraph'.\n Error: %s\n", err.data);
-        panic("aborting...");
+        if object.type != JsonValueType::Object 
+          then return Some(String::from("invalid json type, expected an object to deserialize into Map."));
+
+        for key, value in object.object {
+          mut v: Port;
+          err := deserialize!<Port>(value, &mut v);
+          if err.is_some() {
+            return err;
+          }
+          self.insert(std::c::atoi(key.data), v);
+        }
+
+        return None();
       }
+    }
 
-      if object.type != JsonValueType::Object {
-        return error("Expected object for Data");
+    impl Serializable for Map!<u32, Node> {
+      fn serialize(*const self) -> JsonResult {
+        mut value := JsonValue::new();
+        value.type = JsonValueType::Object;
+        for key, v in *self {
+          result := serialize!<Node>(v);
+          if result.is_err() {
+            return result;
+          }
+          value.object.insert(fmt::to_string(key, FormatOptions.{}, get_global_allocator()), result.unwrap());
+        }
+        return JsonResult::Ok(value);
       }
+      fn deserialize(*mut self, object: *mut JsonValue) -> Option!<String> {
+        println(object.type as JsonValueType);
 
-      discrim_key := String::from("discriminant");
-      payload_key := String::from("payload");
+        if object.type != JsonValueType::Object 
+          then return Some(String::from("invalid json type, expected an object to deserialize into Map."));
 
-      discrim_val := object.object.get(discrim_key);
-      payload_val := object.object.get(payload_key);
+        for key, value in object.object {
+          mut v: Node;
+          err := deserialize!<Node>(value, &mut v);
+          if err.is_some() {
+            return err;
+          }
+          self.insert(std::c::atoi(key.data), v);
+        }
 
-      if discrim_val.is_none() || payload_val.is_none() {
-        return error("Missing discriminant or payload");
+        return None();
       }
-
-      mut discrim: s64;
-      json::deserialize!<s64>(discrim_val.unwrap(), &mut discrim).unwrap();
-      
-      switch discrim {
-        0: {
-          mut value: s64;
-          json::deserialize(payload_val.unwrap(), &mut value).unwrap();
-          *self = Data::Int(value);
-        }
-        1: {
-          mut value: f64;
-          json::deserialize(payload_val.unwrap(), &mut value).unwrap();
-          *self = Data::Float(value);
-        }
-        2: {
-          mut value: bool;
-          json::deserialize(payload_val.unwrap(), &mut value).unwrap();
-          *self = Data::Bool(value);
-        }
-        3: {
-          mut value: String;
-          json::deserialize(payload_val.unwrap(), &mut value).unwrap();
-          *self = Data::String(value);
-        }
-        4: {
-          mut value: raylib::Vector2;
-          json::deserialize(payload_val.unwrap(), &mut value).unwrap();
-          *self = Data::Vector2(value);
-        }
-        else: {
-          return error("Unknown discriminant");
-        }
-      }
-      return None();
     }
   }
-
-  impl Serializable for Map!<u32, Port> {
-    fn serialize(*const self) -> JsonResult {
-      mut value := JsonValue::new();
-      value.type = JsonValueType::Object;
-      for key, v in *self {
-        result := serialize!<Port>(v);
-        if result.is_err() {
-          return result;
-        }
-        value.object.insert(fmt::to_string(key, FormatOptions.{}, get_global_allocator()), result.unwrap());
-      }
-      return JsonResult::Ok(value);
-    }
-    fn deserialize(*mut self, object: *mut JsonValue) -> Option!<String> {
-      println(object.type as JsonValueType);
-
-      if object.type != JsonValueType::Object 
-        then return Some(String::from("invalid json type, expected an object to deserialize into Map."));
-
-      for key, value in object.object {
-        mut v: Port;
-        err := deserialize!<Port>(value, &mut v);
-        if err.is_some() {
-          return err;
-        }
-        self.insert(std::c::atoi(key.data), v);
-      }
-
-      return None();
-    }
-  }
-
-  impl Serializable for Map!<u32, Node> {
-    fn serialize(*const self) -> JsonResult {
-      mut value := JsonValue::new();
-      value.type = JsonValueType::Object;
-      for key, v in *self {
-        result := serialize!<Node>(v);
-        if result.is_err() {
-          return result;
-        }
-        value.object.insert(fmt::to_string(key, FormatOptions.{}, get_global_allocator()), result.unwrap());
-      }
-      return JsonResult::Ok(value);
-    }
-    fn deserialize(*mut self, object: *mut JsonValue) -> Option!<String> {
-      println(object.type as JsonValueType);
-
-      if object.type != JsonValueType::Object 
-        then return Some(String::from("invalid json type, expected an object to deserialize into Map."));
-
-      for key, value in object.object {
-        mut v: Node;
-        err := deserialize!<Node>(value, &mut v);
-        if err.is_some() {
-          return err;
-        }
-        self.insert(std::c::atoi(key.data), v);
-      }
-
-      return None();
-    }
-  }
-}
-
+*/
 impl Graph {
   fn create_edge(*mut self, edge: Edge) {
     self.edges.push(edge);
@@ -255,11 +252,12 @@ impl Graph {
   fn add_node(*mut self, node: Node) {
     self.nodes.insert(self.nodes.length() as u32, node);
   }
+/*   
   fn to_json(self, name: str) -> String {
     json_value := json::serialize(self).expect(fn (error: String) {
       panic(error.as_str());
     });
-    defer json_value.deinit();
+    defer json_value.destroy();
     return json_value.stringify();
   }
   fn from_file(name: str) -> #self {
@@ -270,9 +268,41 @@ impl Graph {
     mut graph: Graph;
     json::deserialize(parsed, &mut graph);
     return graph;
-  }
+  } 
+*/
 }
 
 fn main() {
-  mut graph := Graph::from_file("test.json");
+  mut graph := Graph.{};
+
+  // Create a node with one input and one output
+  mut node := Node.{
+    id: 0,
+  };
+  node.add_input("in", TypeConstraint::Int);
+  node.add_output("out", TypeConstraint::Int);
+
+  graph.add_node(node);
+
+  // Add another node
+  mut node2 := Node.{
+    id: 1,
+  };
+
+  node2.add_input("in", TypeConstraint::Int);
+  node2.add_output("out", TypeConstraint::Int);
+  graph.add_node(node2);
+
+  // Connect node 0's output to node 1's input
+  edge := Edge.{
+    source_node: 0,
+    source_port: 0,
+    target_node: 1,
+    target_port: 0,
+  };
+  graph.create_edge(edge);
+
+  printlnf("Graph nodes: %", (graph.nodes.length(),));
+  printlnf("Graph edges: %", (graph.edges.length,));
+
 }
